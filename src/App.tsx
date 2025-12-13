@@ -258,12 +258,18 @@ function useDashboardData(subjects: Subject[]) {
     const concludedSubjects = subjects.filter(s => s.status === 'done' && s.grade && s.grade >= 6);
     const doingSubjects = subjects.filter(s => s.status === 'doing' || (s.status !== 'done' && s.grade && s.grade < 6));
 
-    // ... (restante dos cálculos de totais e CR) ...
-    let sumGradesXCredits = 0;
-    let sumTotalCredits = 0;
-    // ... (cálculo do CR e Créditos) ...
-    const globalCR = sumTotalCredits > 0 ? (sumGradesXCredits / sumTotalCredits) : 0;
-    const totalCredits = concludedSubjects.reduce((sum, sub) => sum + (sub.credits || 0), 0);
+  // Cálculo do CR: soma (nota * créditos) / soma(créditos) apenas para disciplinas concluídas
+  let sumGradesXCredits = concludedSubjects.reduce((acc, sub) => {
+    const grade = Number(sub.grade) || 0;
+    const credits = Number(sub.credits) || 0;
+    return acc + grade * credits;
+  }, 0);
+
+  let sumTotalCredits = concludedSubjects.reduce((acc, sub) => acc + (Number(sub.credits) || 0), 0);
+
+  const globalCR = sumTotalCredits > 0 ? (sumGradesXCredits / sumTotalCredits) : 0;
+  // totalCredits representa os créditos contabilizados nas disciplinas concluídas
+  const totalCredits = sumTotalCredits;
     const totalConcluded = concludedSubjects.length;
     const totalDoing = doingSubjects.length;
     const totalPending = totalSubjects - totalConcluded - totalDoing;
@@ -324,7 +330,8 @@ function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[]
     const data = useDashboardData(subjects);
     const pendingTasks = tasks.filter(t => t.status !== 'done').length;
 
-    const formattedCR = data.globalCR.toFixed(2);
+  const formattedCR = data.globalCR.toFixed(2);
+  const crDisplay = data.totalCredits === 0 ? 'N/A' : formattedCR;
 
     return (
         <div className="max-w-7xl mx-auto min-h-full flex flex-col">
@@ -341,14 +348,14 @@ function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[]
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 
                 {/* CR Global (Coeficiente de Rendimento) */}
-                <StatsCard 
-                    title="CR Global" 
-                    // VALOR ATUALIZADO
-                    value={formattedCR === '0.00' ? 'N/A' : formattedCR} 
-                    subtitle="Coeficiente de Rendimento" 
-                    icon={<GraduationCap size={32} className="text-orange-400" />}
-                    color="text-orange-400"
-                />
+        <StatsCard 
+          title="CR Global" 
+          // VALOR ATUALIZADO
+          value={crDisplay} 
+          subtitle="Coeficiente de Rendimento" 
+          icon={<GraduationCap size={32} className="text-orange-400" />}
+          color="text-orange-400"
+        />
 
                 {/* Disciplinas Concluídas */}
                 <StatsCard 
