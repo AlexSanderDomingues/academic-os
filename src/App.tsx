@@ -5,11 +5,13 @@ import {
   ChevronDown, GraduationCap as CapIcon 
 } from 'lucide-react'
 import { initialSubjects, initialTasks } from './data'
+import { idbGet, idbSet } from './idbStorage'
 import type { Subject, Task, Attempt } from './data'
 
 // Definindo a interface para um Horário (ScheduleItem)
 export interface ScheduleItem {
     id: string;
+ 
     day: 'Seg' | 'Ter' | 'Qua' | 'Qui' | 'Sex' | 'Sáb';
     startTime: string; // Ex: '08:00'
     endTime: string; // Ex: '10:00'
@@ -121,20 +123,30 @@ function App() {
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(null)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
 
-  // --- POMODORO: estado e persistência ---
-  const [pomodoroSessions, setPomodoroSessions] = useState<PomodoroSession[]>(() => {
-    const saved = localStorage.getItem('academic-pomodoro');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // --- POMODORO: estado e persistência (IndexedDB) ---
+  const [pomodoroSessions, setPomodoroSessions] = useState<PomodoroSession[]>([]);
 
+  // Load pomodoro sessions from IndexedDB on mount
   useEffect(() => {
-    localStorage.setItem('academic-pomodoro', JSON.stringify(pomodoroSessions));
+    let mounted = true
+    idbGet('academic-pomodoro').then(saved => {
+      if (!mounted) return
+      if (saved) {
+        try { setPomodoroSessions(JSON.parse(saved)) } catch { /* ignore */ }
+      }
+    }).catch(() => {})
+    return () => { mounted = false }
+  }, [])
+
+  // Persist pomodoro sessions to IndexedDB
+  useEffect(() => {
+    idbSet('academic-pomodoro', JSON.stringify(pomodoroSessions)).catch(() => {})
   }, [pomodoroSessions]);
 
   // Timer básico do Pomodoro
   const [isPomodoroRunning, setIsPomodoroRunning] = useState(false);
-  const [pomodoroMode, setPomodoroMode] = useState<'work'|'short_break'|'long_break'>('work');
-  const [workMinutes, setWorkMinutes] = useState(25);
+  const [pomodoroMode] = useState<'work'|'short_break'|'long_break'>('work');
+  const [workMinutes] = useState(25);
   const [secondsLeft, setSecondsLeft] = useState(workMinutes * 60);
   const [pomodoroStart, setPomodoroStart] = useState<string | null>(null);
 
@@ -177,13 +189,21 @@ function App() {
   const resetPomodoro = () => { setIsPomodoroRunning(false); setSecondsLeft(workMinutes * 60); setPomodoroStart(null); }
 
   // --- NOTAS (Anotações) ---
-  const [notes, setNotes] = useState<Note[]>(() => {
-    const saved = localStorage.getItem('academic-notes');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [notes, setNotes] = useState<Note[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('academic-notes', JSON.stringify(notes));
+    let mounted = true
+    idbGet('academic-notes').then(saved => {
+      if (!mounted) return
+      if (saved) {
+        try { setNotes(JSON.parse(saved)) } catch { }
+      }
+    }).catch(() => {})
+    return () => { mounted = false }
+  }, [])
+
+  useEffect(() => {
+    idbSet('academic-notes', JSON.stringify(notes)).catch(() => {})
   }, [notes]);
 
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
@@ -212,43 +232,73 @@ function App() {
   }
 
 
-  // --- PERSISTÊNCIA (LOCALSTORAGE) ---
-  const [subjects, setSubjects] = useState<Subject[]>(() => {
-    const saved = localStorage.getItem('academic-subjects')
-    return saved ? JSON.parse(saved) : initialSubjects
-  })
+  // --- PERSISTÊNCIA (IndexedDB) ---
+  const [subjects, setSubjects] = useState<Subject[]>(initialSubjects)
 
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    const saved = localStorage.getItem('academic-tasks')
-    return saved ? JSON.parse(saved) : initialTasks
-  })
+  const [tasks, setTasks] = useState<Task[]>(initialTasks)
 
   // --- Função utilitária: Restaurar dados iniciais (reset localStorage)
   const handleResetData = () => {
     if (!confirm('Restaurar dados iniciais? Isso substituirá os dados salvos localmente.')) return;
-    localStorage.setItem('academic-subjects', JSON.stringify(initialSubjects));
-    localStorage.setItem('academic-tasks', JSON.stringify(initialTasks));
+    idbSet('academic-subjects', JSON.stringify(initialSubjects)).catch(() => {})
+    idbSet('academic-tasks', JSON.stringify(initialTasks)).catch(() => {})
     setSubjects(initialSubjects);
     setTasks(initialTasks);
     alert('Dados restaurados para os valores iniciais.');
   }
   
-  const [schedule, setSchedule] = useState<ScheduleItem[]>(() => {
-    const saved = localStorage.getItem('academic-schedule')
-    return saved ? JSON.parse(saved) : initialSchedule
-  })
+  const [schedule, setSchedule] = useState<ScheduleItem[]>(initialSchedule)
+
+  // Load subjects, tasks and schedule from IndexedDB on mount
+  useEffect(() => {
+    // Migrate any existing localStorage keys to IndexedDB (one-time)
+    try {
+      const keys = ['academic-subjects','academic-tasks','academic-schedule','academic-pomodoro','academic-notes']
+      keys.forEach(k => {
+        try {
+          const v = localStorage.getItem(k)
+          if (v) {
+            idbSet(k, v).catch(() => {})
+            localStorage.removeItem(k)
+          }
+        } catch(e) { }
+      })
+    } catch(e) {}
+
+    let mounted = true
+    idbGet('academic-subjects').then(saved => {
+      if (!mounted) return
+      if (saved) {
+        try { setSubjects(JSON.parse(saved)) } catch {}
+      }
+    }).catch(() => {})
+    idbGet('academic-tasks').then(saved => {
+      if (!mounted) return
+      if (saved) {
+        try { setTasks(JSON.parse(saved)) } catch {}
+      }
+    }).catch(() => {})
+    idbGet('academic-schedule').then(saved => {
+      if (!mounted) return
+      if (saved) {
+        try { setSchedule(JSON.parse(saved)) } catch {}
+      }
+    }).catch(() => {})
+    return () => { mounted = false }
+  }, [])
 
   useEffect(() => {
-    localStorage.setItem('academic-subjects', JSON.stringify(subjects))
+    idbSet('academic-subjects', JSON.stringify(subjects)).catch(() => {})
   }, [subjects])
 
   useEffect(() => {
-    localStorage.setItem('academic-tasks', JSON.stringify(tasks))
+    idbSet('academic-tasks', JSON.stringify(tasks)).catch(() => {})
   }, [tasks])
-  
+
   useEffect(() => {
-    localStorage.setItem('academic-schedule', JSON.stringify(schedule))
+    idbSet('academic-schedule', JSON.stringify(schedule)).catch(() => {})
   }, [schedule])
+  
   // -----------------------------------
 
 
@@ -800,7 +850,6 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
               subjects={subjects}
               onOpenModal={handleOpenNoteModal}
               onDeleteNote={handleDeleteNote}
-              onSaveNote={handleSaveNote}
             />
         )}
 
@@ -2598,7 +2647,7 @@ function ScheduleView({ schedule, onOpenModal }: { schedule: ScheduleItem[], onO
 
 
 // --- COMPONENTE AUXILIAR: MODAL DE NOTAS ---
-function NotesView({ notes, subjects, onOpenModal, onDeleteNote, onSaveNote }: { notes: Note[], subjects: Subject[], onOpenModal: (n: Note | null) => void, onDeleteNote: (id: string) => void, onSaveNote: (n: Note) => void }) {
+function NotesView({ notes, subjects, onOpenModal, onDeleteNote }: { notes: Note[], subjects: Subject[], onOpenModal: (n: Note | null) => void, onDeleteNote: (id: string) => void }) {
   const [search, setSearch] = useState('')
   const [filterSubject, setFilterSubject] = useState('')
 
@@ -2656,14 +2705,67 @@ function NotesView({ notes, subjects, onOpenModal, onDeleteNote, onSaveNote }: {
     </div>
   )
 }
-function NoteModal({ note, subjects, onSave, onClose }: { note: Note, subjects: Subject[], onSave: (data: Note) => void, onClose: () => void }) {
-  const isNew = note.id === 'new';
-  const [noteData, setNoteData] = useState<Note>(note);
+// Modal simples para criar/editar tarefas
+function TaskModal({ task, subjects, onSave, onClose }: { task: Task, subjects: Subject[], onSave: (data: Task) => void, onClose: () => void }) {
+  const [data, setData] = useState<Task>(task);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setNoteData(prev => ({ ...prev, [name]: value }));
-  };
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(data);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-[#1A1D24] border border-white/10 w-full max-w-lg rounded-2xl p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-white">{task.id === 'new' ? 'Nova Tarefa' : 'Editar Tarefa'}</h3>
+          <button onClick={onClose} className="text-slate-400">Fechar</button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-sm text-slate-400">Título</label>
+            <input value={data.title} onChange={e => setData({ ...data, title: e.target.value })} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white" />
+          </div>
+          <div>
+            <label className="text-sm text-slate-400">Disciplina (opcional)</label>
+            <select value={data.subjectId || ''} onChange={e => setData({ ...data, subjectId: e.target.value || undefined })} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white">
+              <option value="">(Nenhuma)</option>
+              {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+            </select>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded bg-white/5 text-slate-200">Cancelar</button>
+            <button type="submit" className="px-4 py-2 rounded bg-purple-600 text-white">Salvar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Componente simples para seleção de pré-requisitos
+function PrerequisiteListBox({ currentPrereqs, allSubjects, onChange, disabled, currentSubjectCode }: { currentPrereqs: string, allSubjects: Subject[], onChange: (v: string) => void, disabled?: boolean, currentSubjectCode?: string }) {
+  const selected = currentPrereqs ? currentPrereqs.split(';').map(s => s.trim()).filter(Boolean) : [];
+
+  const toggle = (code: string) => {
+    const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
+    onChange(next.join(';'));
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {allSubjects.filter(s => s.code !== currentSubjectCode).map(s => (
+        <label key={s.id} className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-60' : ''}`}>
+          <input type="checkbox" checked={selected.includes(s.code)} disabled={disabled} onChange={() => toggle(s.code)} />
+          <span className="text-slate-300">{s.code} - {s.name}</span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+function NoteModal({ note, subjects, onSave, onClose }: { note: Note, subjects: Subject[], onSave: (data: Note) => void, onClose: () => void }) {
+  const [noteData, setNoteData] = useState<Note>(note);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2710,6 +2812,7 @@ function NoteModal({ note, subjects, onSave, onClose }: { note: Note, subjects: 
       </div>
     </div>
   )
+
 }
 
 // --- END Notes components ---

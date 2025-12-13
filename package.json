@@ -8,10 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "predeploy": "npm run build",  
+    "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "dexie": "^4.2.1",
     "lucide-react": "^0.560.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
