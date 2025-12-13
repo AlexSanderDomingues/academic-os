@@ -1954,7 +1954,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                 value={data.name}
                                 onChange={handleChange}
                                 placeholder="Nome Completo"
-                                className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                 disabled={!isEditing}
                                 required
                             />
@@ -1968,7 +1968,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                 value={data.code}
                                 onChange={handleChange}
                                 placeholder="Ex: EC301"
-                                className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                 disabled={!isEditing}
                                 required
                             />
@@ -1985,7 +1985,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   name="status"
                                   value={data.status}
                                   onChange={(e) => handleStatusChange(e.target.value as Subject['status'])}
-                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               >
                                   <option value="done">Concluída (Aprovada)</option>
@@ -2004,7 +2004,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   value={data.academic_period || ''}
                                   onChange={handleChange}
                                   placeholder={typeof getCurrentAcademicPeriod === 'function' ? getCurrentAcademicPeriod() : 'Ex: 2025/1'}
-                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               />
                               <p className="text-xs text-slate-500 mt-1">Para o Dashboard de Desempenho (YYYY/S)</p>
@@ -2023,7 +2023,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   step="0.1"
                                   min="0"
                                   max="10"
-                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               />
                           </div>
@@ -2040,7 +2040,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   value={data.semester}
                                   onChange={handleChange}
                                   placeholder="Ex: 1º Semestre"
-                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               />
                           </div>
@@ -2385,7 +2385,7 @@ function ImportPPCView({ onImportSubjects }: { onImportSubjects: (subjects: Subj
                     placeholder="Cole aqui o conteúdo do PPC/matriz curricular..."
                     value={rawText}
                     onChange={(e) => setRawText(e.target.value)}
-                    className="w-full bg-[#1D24] border border-white/5 rounded-xl p-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y"
+                    className="w-full bg-[#1D2430] border border-white/5 rounded-xl p-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y"
                 />
             </div>
 
@@ -2670,7 +2670,7 @@ function NotesView({ notes, subjects, onOpenModal, onDeleteNote }: { notes: Note
             <option value="">Todas disciplinas</option>
             {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
           </select>
-          <button onClick={() => onOpenModal(null)} className="px-3 py-2 bg-purple-600 rounded text-white flex items-center gap-2"><Plus size={14}/>Nova</button>
+          <button onClick={() => onOpenModal(null)} className="px-6 py-2 bg-purple-600 rounded text-white flex items-center gap-2"><Plus size={14}/>Nova</button>
         </div>
       </div>
 
