@@ -24,6 +24,62 @@ const initialSchedule: ScheduleItem[] = [
     { id: 'h2', day: 'Qua', startTime: '19:00', endTime: '22:00', title: 'Algoritmos', type: 'Aula', subjectId: '4' },
 ];
 
+// =================================================================
+// --- POMODORO: Tipos e Componente Simples ---
+// =================================================================
+export interface PomodoroSession {
+  id: string;
+  type: 'work' | 'short_break' | 'long_break';
+  start: string; // ISO
+  end: string; // ISO
+  durationMinutes: number;
+}
+
+// --- Notes (Anotações) ---
+export interface Note {
+  id: string;
+  title: string;
+  content?: string;
+  date: string; // ISO date (YYYY-MM-DD)
+  subjectId?: string; // vinculo opcional com disciplina
+  tags?: string[];
+}
+
+function PomodoroPanel({
+  isRunning,
+  modeLabel,
+  secondsLeft,
+  onStartPause,
+  onReset,
+  workMinutes
+}: {
+  isRunning: boolean;
+  modeLabel: string;
+  secondsLeft: number;
+  onStartPause: () => void;
+  onReset: () => void;
+  workMinutes: number;
+}) {
+  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
+  const ss = String(secondsLeft % 60).padStart(2, '0');
+
+  return (
+    <div className="bg-[#13151A] border border-white/5 rounded-2xl p-4 mb-6 max-w-sm">
+      <h4 className="text-sm text-slate-300 font-medium">Pomodoro</h4>
+      <div className="flex items-center justify-between mt-2">
+        <div>
+          <div className="text-3xl font-mono text-white">{mm}:{ss}</div>
+          <div className="text-xs text-slate-500 mt-1">{modeLabel} • {workMinutes} min</div>
+        </div>
+        <div className="flex flex-col items-end gap-2">
+          <button onClick={onStartPause} className="px-3 py-2 bg-purple-600 rounded text-white text-sm">{isRunning ? 'Pausar' : 'Iniciar'}</button>
+          <button onClick={onReset} className="px-3 py-2 bg-white/5 rounded text-slate-200 text-sm">Resetar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // statusConfig global removido (configurações locais são definidas onde necessário)
 
 // =================================================================
@@ -65,7 +121,95 @@ function App() {
   const [editingSchedule, setEditingSchedule] = useState<ScheduleItem | null>(null)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
 
-  
+  // --- POMODORO: estado e persistência ---
+  const [pomodoroSessions, setPomodoroSessions] = useState<PomodoroSession[]>(() => {
+    const saved = localStorage.getItem('academic-pomodoro');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('academic-pomodoro', JSON.stringify(pomodoroSessions));
+  }, [pomodoroSessions]);
+
+  // Timer básico do Pomodoro
+  const [isPomodoroRunning, setIsPomodoroRunning] = useState(false);
+  const [pomodoroMode, setPomodoroMode] = useState<'work'|'short_break'|'long_break'>('work');
+  const [workMinutes, setWorkMinutes] = useState(25);
+  const [secondsLeft, setSecondsLeft] = useState(workMinutes * 60);
+  const [pomodoroStart, setPomodoroStart] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSecondsLeft(workMinutes * 60);
+  }, [workMinutes]);
+
+  useEffect(() => {
+    if (!isPomodoroRunning) return;
+    const t = setInterval(() => {
+      setSecondsLeft(s => {
+        if (s <= 1) {
+          // sessão terminou
+          setIsPomodoroRunning(false);
+          // registra sessão usando o timestamp de início real (se disponível)
+          const now = new Date();
+          const end = now.toISOString();
+          const startIso = pomodoroStart || new Date(now.getTime() - workMinutes * 60000).toISOString();
+          const durationMinutes = Math.max(1, Math.round((Date.parse(end) - Date.parse(startIso)) / 60000));
+          setPomodoroSessions(prev => [...prev, { id: Date.now().toString(), type: pomodoroMode, start: startIso, end, durationMinutes }]);
+          setPomodoroStart(null);
+          return 0;
+        }
+        return s - 1;
+      })
+    }, 1000);
+    return () => clearInterval(t);
+  }, [isPomodoroRunning, pomodoroMode, workMinutes]);
+
+  const togglePomodoro = () => {
+    setIsPomodoroRunning(running => {
+      const next = !running;
+      if (next) {
+        setPomodoroStart(new Date().toISOString());
+      }
+      return next;
+    });
+  };
+
+  const resetPomodoro = () => { setIsPomodoroRunning(false); setSecondsLeft(workMinutes * 60); setPomodoroStart(null); }
+
+  // --- NOTAS (Anotações) ---
+  const [notes, setNotes] = useState<Note[]>(() => {
+    const saved = localStorage.getItem('academic-notes');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('academic-notes', JSON.stringify(notes));
+  }, [notes]);
+
+  const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  const handleOpenNoteModal = (note: Note | null = null) => {
+    if (note) setEditingNote(note);
+    else setEditingNote({ id: 'new', title: 'Nova Nota', content: '', date: new Date().toISOString().slice(0,10), tags: [] });
+    setIsNoteModalOpen(true);
+  }
+
+  const handleSaveNote = (noteData: Note) => {
+    if (noteData.id === 'new') {
+      const newNote = { ...noteData, id: Date.now().toString() };
+      setNotes(prev => [newNote, ...prev]);
+    } else {
+      setNotes(prev => prev.map(n => n.id === noteData.id ? noteData : n));
+    }
+    setIsNoteModalOpen(false);
+    setEditingNote(null);
+  }
+
+  const handleDeleteNote = (id: string) => {
+    if (!confirm('Excluir anotação?')) return;
+    setNotes(prev => prev.filter(n => n.id !== id));
+  }
 
 
   // --- PERSISTÊNCIA (LOCALSTORAGE) ---
@@ -120,6 +264,9 @@ const handleSaveSubject = (updatedSubject: Subject) => {
     ...updatedSubject,
     status: updatedSubject.grade !== undefined && updatedSubject.grade >= 6 ? 'done' : updatedSubject.status 
   };
+
+  // ...existing code...
+
 
   const isRepeat = subjectToSave.id.startsWith('new') && !!subjectToSave.parentId;
 
@@ -253,7 +400,7 @@ const handleOpenSubjectModal = (subject: Subject | null = null) => {
 // Garanta que esta função auxiliar esteja definida no escopo (Bloco 1 anterior)
 // function isAcademicPeriod(semesterValue: string | undefined): boolean { ... }
 
-function useDashboardData(subjects: Subject[]) {
+function useDashboardData(subjects: Subject[], pomodoroSessions?: PomodoroSession[]) {
     const totalSubjects = subjects.length;
     const concludedSubjects = subjects.filter(s => s.status === 'done' && s.grade && s.grade >= 6);
     const doingSubjects = subjects.filter(s => s.status === 'doing' || (s.status !== 'done' && s.grade && s.grade < 6));
@@ -310,7 +457,12 @@ function useDashboardData(subjects: Subject[]) {
             : 0
     }));
 
-    return {
+  const totalPomodoros = pomodoroSessions ? pomodoroSessions.filter(s => s.type === 'work').length : 0;
+  const todayKey = new Date().toISOString().slice(0,10);
+  const todayPomodoros = pomodoroSessions ? pomodoroSessions.filter(s => s.type === 'work' && s.start.slice(0,10) === todayKey).length : 0;
+  const totalPomodoroMinutes = pomodoroSessions ? pomodoroSessions.reduce((acc, s) => acc + (s.durationMinutes || 0), 0) : 0;
+
+  return {
         totalSubjects,
         totalConcluded,
         totalDoing,
@@ -318,16 +470,19 @@ function useDashboardData(subjects: Subject[]) {
         progressPercentage,
         progressBySemester,
         totalCredits,
-        globalCR
+    globalCR,
+    totalPomodoros,
+    todayPomodoros,
+    totalPomodoroMinutes
     };
 }
 // =================================================================
 // --- COMPONENTE VISUAL: DASHBOARD VIEW ---
 // =================================================================
 
-function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[] }) {
+function DashboardView({ subjects, tasks, pomodoroSessions, isPomodoroRunning, secondsLeft, onStartPause, onReset, workMinutes, pomodoroMode }: { subjects: Subject[], tasks: Task[], pomodoroSessions?: PomodoroSession[], isPomodoroRunning?: boolean, secondsLeft?: number, onStartPause?: () => void, onReset?: () => void, workMinutes?: number, pomodoroMode?: 'work'|'short_break'|'long_break' }) {
     
-    const data = useDashboardData(subjects);
+  const data = useDashboardData(subjects, pomodoroSessions);
     const pendingTasks = tasks.filter(t => t.status !== 'done').length;
 
   const formattedCR = data.globalCR.toFixed(2);
@@ -348,14 +503,28 @@ function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[]
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 
                 {/* CR Global (Coeficiente de Rendimento) */}
-        <StatsCard 
-          title="CR Global" 
-          // VALOR ATUALIZADO
-          value={crDisplay} 
-          subtitle="Coeficiente de Rendimento" 
-          icon={<GraduationCap size={32} className="text-orange-400" />}
-          color="text-orange-400"
-        />
+        <div>
+          <StatsCard 
+            title="CR Global" 
+            // VALOR ATUALIZADO
+            value={crDisplay} 
+            subtitle="Coeficiente de Rendimento" 
+            icon={<GraduationCap size={32} className="text-orange-400" />}
+            color="text-orange-400"
+          />
+
+          {/* Painel do Pomodoro encaixado abaixo do CR Global */}
+          <div className="mt-4">
+            <PomodoroPanel
+              isRunning={!!isPomodoroRunning}
+              modeLabel={pomodoroMode === 'work' ? 'Trabalho' : pomodoroMode === 'short_break' ? 'Descanso curto' : 'Descanso longo'}
+              secondsLeft={typeof secondsLeft === 'number' ? secondsLeft : (workMinutes || 25) * 60}
+              onStartPause={onStartPause || (() => {})}
+              onReset={onReset || (() => {})}
+              workMinutes={workMinutes || 25}
+            />
+          </div>
+        </div>
 
                 {/* Disciplinas Concluídas */}
                 <StatsCard 
@@ -385,6 +554,17 @@ function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[]
                 />
             </div>
 
+        {/* Estatísticas do Pomodoro */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          <StatsCard
+            title="Pomodoros"
+            value={`${data.todayPomodoros}/${data.totalPomodoros}`}
+            subtitle={`Hoje / Total (${data.totalPomodoroMinutes} min)`}
+            icon={<Clock size={32} className="text-pink-400" />}
+            color="text-pink-400"
+          />
+        </div>
+
             {/* PROGRESSO DO CURSO E PROGRESSO POR SEMESTRE (2 COLUNAS) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
@@ -400,7 +580,7 @@ function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[]
                                 background: `conic-gradient(#8b5cf6 0% ${data.progressPercentage}%, #1f2937 ${data.progressPercentage}% 100%)`
                             }}
                         ></div>
-                        <div className="absolute inset-4 bg-[#1A1D24] rounded-full flex flex-col items-center justify-center">
+                        <div className="absolute inset-4 bg-[#1D1D24] rounded-full flex flex-col items-center justify-center">
                             <span className="text-3xl font-bold text-purple-400">{data.progressPercentage}%</span>
                             <span className="text-xs text-slate-500 mt-1">Concluído</span>
                         </div>
@@ -451,7 +631,7 @@ function DashboardView({ subjects, tasks }: { subjects: Subject[], tasks: Task[]
 // --- Componente Auxiliar para Cards de Estatísticas ---
 function StatsCard({ title, value, subtitle, icon, color }: { title: string, value: string, subtitle: string, icon: React.ReactElement, color: string }) {
     return (
-        <div className="bg-[#1A1D24] border border-white/5 p-6 rounded-2xl shadow-lg flex items-start gap-4">
+        <div className="bg-[#1D1F24] border border-white/5 p-6 rounded-2xl shadow-lg flex items-start gap-4">
         <div className={`p-3 rounded-full ${color.replace('text-', 'bg-')}/10`}>
         {React.isValidElement(icon) ? React.cloneElement(icon as React.ReactElement<any>, { size: 24, className: color }) : icon}
       </div>
@@ -562,6 +742,15 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
     }
   }
 
+  // Componente local para itens da sidebar (definido dentro de App para garantir escopo)
+  function SidebarItem({ icon, label, active, onClick }: { icon: React.ReactNode, label: string, active: boolean, onClick: () => void }) {
+    return (
+      <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all ${active ? 'bg-purple-600/10 text-purple-400' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}>
+        {icon} <span className="font-medium text-sm">{label}</span>
+      </button>
+    )
+  }
+
 
   return (
     <div className="flex h-screen w-full bg-[#0F1115] text-slate-50 font-sans selection:bg-purple-500/30">
@@ -584,8 +773,9 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
           <SidebarItem icon={<Calendar size={20} />} label="Horários" active={activeTab === 'horarios'} onClick={() => setActiveTab('horarios')} />
           <SidebarItem icon={<CheckSquare size={20} />} label="Tarefas" active={activeTab === 'tarefas'} onClick={() => setActiveTab('tarefas')} />
           <SidebarItem icon={<BarChart size={20} />} label="Desempenho" active={activeTab === 'desempenho'} onClick={() => setActiveTab('desempenho')} />
-          {/* NOVO ITEM NA SIDEBAR */}
-          <SidebarItem icon={<FileText size={20} />} label="Importar PPC" active={activeTab === 'import-ppc'} onClick={() => setActiveTab('import-ppc')} />
+          <SidebarItem icon={<FileText size={20} />} label="Anotações" active={activeTab === 'notes'} onClick={() => setActiveTab('notes')} />
+           {/* NOVO ITEM NA SIDEBAR */}
+           <SidebarItem icon={<FileText size={20} />} label="Importar PPC" active={activeTab === 'import-ppc'} onClick={() => setActiveTab('import-ppc')} />
           
           {/* Botão de reset de dados (útil se localStorage foi sobrescrito) */}
           <button onClick={handleResetData} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all text-slate-400 hover:bg-white/5 hover:text-slate-200`}>
@@ -604,9 +794,32 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
             <PerformanceView subjects={subjects} />
         )}
 
+        {activeTab === 'notes' && (
+            <NotesView 
+              notes={notes}
+              subjects={subjects}
+              onOpenModal={handleOpenNoteModal}
+              onDeleteNote={handleDeleteNote}
+              onSaveNote={handleSaveNote}
+            />
+        )}
+
         {/* NOVO BLOCO: CHAMADA PARA O DASHBOARD */}
         {activeTab === 'dashboard' && ( 
-            <DashboardView subjects={subjects} tasks={tasks} />
+            <>
+              
+              <DashboardView 
+                subjects={subjects} 
+                tasks={tasks} 
+                pomodoroSessions={pomodoroSessions} 
+                isPomodoroRunning={isPomodoroRunning}
+                secondsLeft={secondsLeft}
+                onStartPause={togglePomodoro}
+                onReset={resetPomodoro}
+                workMinutes={workMinutes}
+                pomodoroMode={pomodoroMode}
+              />
+            </>
         )}
 
         {activeTab === 'tarefas' && (
@@ -680,6 +893,14 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
             onClose={() => setIsSubjectModalOpen(false)}
         />
       )}
+      {isNoteModalOpen && editingNote && (
+        <NoteModal 
+          note={editingNote} 
+          subjects={subjects}
+          onSave={handleSaveNote} 
+          onClose={() => { setIsNoteModalOpen(false); setEditingNote(null); }} 
+        />
+      )}
     </div>
   )
 }
@@ -692,171 +913,631 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
 // =================================================================
 
 // =================================================================
-// --- LÓGICA DE DADOS DE DESEMPENHO ATUALIZADA (SEM REPROVAÇÕES EXPLÍCITAS) ---
+// --- LÓGICA DE DADOS DE DESEMPENHO POR PERÍODO LETIVO (FINAL) ---
 // =================================================================
 
+// =================================================================
+// --- LÓGICA DE DADOS DE DESEMPENHO POR PERÍODO LETIVO (FINAL) ---
+// =================================================================
 
-// --- DROP DOWN (Filtros) ---
-function DropdownFilter({ label, options, onSelect }: { label: string, options: string[], onSelect: (value: string) => void }) {
-    const [isOpen, setIsOpen] = useState(false);
+// =================================================================
+// --- LÓGICA DE DADOS DE DESEMPENHO ATUALIZADA (COM REPROVADOS) ---
+// =================================================================
+
+// =================================================================
+// --- LÓGICA DE DADOS DE DESEMPENHO ATUALIZADA (COM CHECK DE NULL) ---
+// =================================================================
+
+function usePerformanceData(subjects: Subject[]) {
+    
+    // 🛑 CORREÇÃO CRÍTICA: Garante que subjects seja um array mesmo se undefined/null.
+    const validSubjects = subjects || []; 
+    
+    const currentPeriod = getCurrentAcademicPeriod();
+    const isValidPeriodFormat = (value: string) => /^\d{4}\/[12]$/.test(value);
+
+    // 1. Agrupar e Calcular Métricas por Período Letivo (YYYY/S)
+    const performanceByPeriod = validSubjects.reduce((acc, sub) => {
+        
+        let period: string | null = null;
+        
+    if (sub.academic_period && isValidPeriodFormat(sub.academic_period)) {
+      period = sub.academic_period;
+    } 
+    else if (sub.semester && isValidPeriodFormat(String(sub.semester))) {
+      period = String(sub.semester);
+        }
+        else if (sub.status === 'doing' || sub.status === 'pending') {
+            period = currentPeriod;
+        } 
+        else {
+            return acc; 
+        }
+        
+        if (!period) return acc;
+        
+        acc[period] = acc[period] || { total: 0, concluded: 0, doing: 0, failed: 0 }; 
+        
+        acc[period].total += 1;
+        
+        const isApproved = sub.status === 'done' && sub.grade && sub.grade >= 6;
+        const isDoing = sub.status === 'doing';
+        const isFailed = sub.status === 'failed' || (sub.grade !== undefined && sub.grade < 6 && sub.status !== 'doing');
+
+        if (isApproved) {
+            acc[period].concluded += 1;
+        } 
+        
+        if (isDoing) {
+            acc[period].doing += 1;
+        } 
+        
+        if (isFailed) {
+            acc[period].failed += 1;
+        }
+        
+        return acc;
+    }, {} as Record<string, { total: number, concluded: number, doing: number, failed: number }>);
+
+    // 2. Calcular Porcentagem de Desempenho e Ordenar
+    // Esta linha agora está segura, pois performanceByPeriod será sempre um objeto ({})
+    const sortedPerformance = Object.keys(performanceByPeriod).sort((a, b) => {
+        if (a > b) return 1;
+        if (a < b) return -1;
+        return 0;
+    }).map(period => {
+        const data = performanceByPeriod[period];
+        
+        const totalEvaluated = data.concluded + data.failed;
+        const successRate = totalEvaluated > 0 ? (data.concluded / totalEvaluated) * 100 : 0;
+        
+        return {
+            period: period, 
+            total: data.total,
+            concluded: data.concluded,
+            doing: data.doing,
+            failed: data.failed,
+            successPercentage: Math.round(successRate),
+            totalEvaluated: totalEvaluated,
+            isCurrent: period === currentPeriod 
+        };
+    });
+
+    return sortedPerformance;
+}
+
+// =================================================================
+// --- COMPONENTE VISUAL: PERFORMANCE VIEW (A FUNÇÃO PRINCIPAL QUE FALTAVA) ---
+// =================================================================
+
+// --- Componente Auxiliar para Exibir o Desempenho por Período ---
+// IMPORTANTE: Use este nome, e não SemesterPerformanceCard
+// --- Componente Auxiliar para Exibir o Desempenho por Período ---
+function PeriodPerformanceCard({ data }: { data: ReturnType<typeof usePerformanceData>[0] }) {
+    
+    const performanceColor = data.successPercentage >= 80 ? 'text-emerald-400' : 
+                             data.successPercentage >= 50 ? 'text-yellow-400' : 'text-red-400';
+
+    const barColor = data.successPercentage >= 80 ? 'bg-emerald-600' : 
+                     data.successPercentage >= 50 ? 'bg-yellow-600' : 'bg-red-600';
+    
+    const totalEvaluated = data.totalEvaluated; 
 
     return (
-        <div className="relative inline-block text-left">
-            <button
-                type="button"
-                className="inline-flex justify-between items-center w-full rounded-xl border border-white/5 shadow-sm px-4 py-3 bg-[#1A1D24] text-sm font-medium text-slate-300 hover:bg-white/5 transition-colors"
-                onClick={() => setIsOpen(!isOpen)}
-            >
-                {label}
-                <ChevronDown size={16} className={`ml-2 transition-transform ${isOpen ? 'rotate-180' : 'rotate-0'}`} />
-            </button>
+        <div className="bg-[#1D1F24] border border-white/5 p-6 rounded-2xl shadow-lg">
+            <h3 className="text-xl font-bold text-white border-b border-white/5 pb-3 mb-4 flex items-center justify-between">
+                
+                <span className="flex items-center gap-3">
+                    {data.period} 
+                    {data.isCurrent && (
+                        <span className="text-xs px-3 py-1 bg-purple-600/30 text-purple-400 rounded-full font-medium">
+                            Período Atual
+                        </span>
+                    )}
+                </span>
 
-            {isOpen && (
-                <div
-                    className="absolute right-0 z-10 mt-2 w-56 origin-top-right rounded-xl bg-[#1A1D24] border border-white/10 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none max-h-60 overflow-y-auto"
-                    role="menu"
-                    aria-orientation="vertical"
-                >
-                    <div className="py-1" role="none">
-                        {options.map((option) => (
-                            <button
-                                key={option}
-                                onClick={() => {
-                                    onSelect(option);
-                                    setIsOpen(false);
-                                }}
-                                className={`block w-full text-left px-4 py-2 text-sm ${
-                                    option === label ? 'bg-purple-600/70 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'
-                                }`}
-                                role="menuitem"
-                            >
-                                {option}
-                            </button>
-                        ))}
-                    </div>
+                <span className={`text-2xl font-extrabold flex items-center gap-2 ${performanceColor}`}>
+                    <TrendingUp size={24} /> {data.successPercentage}%
+                </span>
+            </h3>
+
+            {/* Barras de Progresso */}
+            <div className="mb-4">
+                <div className="w-full bg-[#0F1115] rounded-full h-2.5">
+                    <div 
+                        className={`h-2.5 rounded-full transition-all duration-500 ${barColor}`} 
+                        style={{ width: `${data.successPercentage}%` }}
+                    ></div>
+                </div>
+                <p className="text-sm text-slate-500 mt-2">
+                    Taxa de Sucesso ({data.concluded} aprovadas de {totalEvaluated} avaliadas)
+                </p>
+            </div>
+
+            {/* Métricas Detalhadas (AGORA COM 3 COLUNAS) */}
+            <div className="grid grid-cols-3 gap-4 border-t border-white/5 pt-4">
+                <PerformanceMetric icon={<CheckCircle size={20} className="text-emerald-400" />} label="Aprovadas" value={data.concluded} />
+                <PerformanceMetric icon={<Clock size={20} className="text-orange-400" />} label="Cursando" value={data.doing} />
+                {/* NOVO: Reprovados */}
+                <PerformanceMetric icon={<X size={20} className="text-red-400" />} label="Reprovados" value={data.failed} />
+            </div>
+        </div>
+    );
+}
+
+// --- Componente Principal (PerformanceView) ---
+// Ele DEVE usar o PeriodPerformanceCard, e não SemesterPerformanceCard
+function PerformanceView({ subjects }: { subjects: Subject[] }) {
+    
+    const semesterData = usePerformanceData(subjects);
+    
+    return (
+        <div className="max-w-6xl mx-auto">
+            <header className="mb-8 flex items-center gap-3">
+                <div className="bg-purple-500/10 p-3 rounded-xl"><BarChart className="text-purple-400" size={32} /></div>
+                <div><h2 className="text-3xl font-bold text-white">Desempenho Acadêmico</h2></div>
+            </header>
+            
+            <p className="text-slate-400 mb-6">Métricas detalhadas por período letivo (Ano/Semestre).</p>
+
+            <div className="space-y-6">
+                {semesterData.map((data, index) => (
+                    <PeriodPerformanceCard key={index} data={data} /> // <--- CORREÇÃO: USANDO PeriodPerformanceCard
+                ))}
+            </div>
+
+            {semesterData.length === 0 && (
+                <div className="text-center py-16 text-slate-500 bg-[#16181D] rounded-xl">
+                    Nenhuma disciplina cadastrada para calcular o desempenho.
                 </div>
             )}
         </div>
     );
 }
 
-function SidebarItem({ icon, label, active, onClick }: any) {
+// Componente Auxiliar
+function PerformanceMetric({ icon, label, value }: { icon: React.ReactNode, label: string, value: number }) {
   return (
-    <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-1 transition-all ${active ? 'bg-purple-600/10 text-purple-400' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'}`}>
-      {icon} <span className="font-medium text-sm">{label}</span>
+    <div className="flex flex-col items-center p-3 bg-[#0F1115] rounded-lg">
+      {icon}
+      <span className="text-xl font-bold text-white mt-1">{value}</span>
+      <p className="text-xs text-slate-500">{label}</p>
+    </div>
+  );
+}
+
+// --- MODAL DE CRIAÇÃO/EDIÇÃO DE HORÁRIO ---
+function ScheduleModal({ item, subjects, onSave, onDelete, onClose }: { item: ScheduleItem, subjects: Subject[], onSave: (data: ScheduleItem) => void, onDelete?: (id: string) => void, onClose: () => void }) {
+    const isNew = item.id === 'new';
+    const [scheduleData, setScheduleData] = useState<ScheduleItem>(item);
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setScheduleData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!scheduleData.title.trim() || !scheduleData.startTime || !scheduleData.endTime) {
+            alert("Título, hora de início e hora de fim são obrigatórios.");
+            return;
+        }
+        onSave(scheduleData);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-[#1A1D24] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                
+                <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-2xl font-bold text-white">{isNew ? 'Novo Horário' : 'Editar Horário'}</h2>
+                    <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={24} /></button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    
+                    {/* TÍTULO */}
+                    <div>
+                        <label className="block text-sm font-medium text-slate-400 mb-1">Título</label>
+                        <input
+                            type="text"
+                            name="title"
+                            value={scheduleData.title}
+                            onChange={handleChange}
+                            placeholder="Ex: Cálculo I (Aula Teórica)"
+                            className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                            required
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* TIPO */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">Tipo</label>
+                            <select
+                                name="type"
+                                value={scheduleData.type}
+                                onChange={handleChange}
+                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                            >
+                                <option value="Aula">Aula</option>
+                                <option value="Trabalho">Trabalho/Estudo</option>
+                                <option value="Compromisso">Compromisso</option>
+                            </select>
+                        </div>
+                        
+                        {/* DIA DA SEMANA */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">Dia</label>
+                            <select
+                                name="day"
+                                value={scheduleData.day}
+                                onChange={handleChange}
+                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                            >
+                                {DAYS.map(day => <option key={day} value={day}>{day}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        {/* START TIME */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">Início</label>
+                            <input
+                                type="time"
+                                name="startTime"
+                                value={scheduleData.startTime}
+                                onChange={handleChange}
+                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                required
+                            />
+                        </div>
+                        
+                        {/* END TIME */}
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-1">Fim</label>
+                            <input
+                                type="time"
+                                name="endTime"
+                                value={scheduleData.endTime}
+                                onChange={handleChange}
+                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                required
+                            />
+                        </div>
+                    </div>
+                    
+                    {/* DISCIPLINA (Opcional - ÚNICA SELEÇÃO) */}
+                    <div>
+                        <label className="block text-sm font-medium text-slate-400 mb-1">Vincular Disciplina (Opcional)</label>
+                        <select
+                            name="subjectId"
+                            value={scheduleData.subjectId || ''}
+                            onChange={(e) => setScheduleData(prev => ({ ...prev, subjectId: e.target.value || undefined }))}
+                            className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                        >
+                            <option value="">(Nenhuma)</option>
+                            {subjects.map(sub => (
+                                <option key={sub.id} value={sub.id}>{sub.code} - {sub.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div className="pt-4 flex justify-between items-center">
+                        {onDelete && !isNew ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    onDelete(item.id);
+                                    onClose(); // Fecha o modal após deletar
+                                }}
+                                className="text-red-400 hover:text-red-300 p-2 transition-colors flex items-center gap-1"
+                            >
+                                <Trash2 size={18} /> Excluir
+                            </button>
+                        ) : (
+                            <div/>
+                        )}
+                        <button
+                            type="submit"
+                            className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all"
+                        >
+                            <Save size={18} /> {isNew ? 'Criar Horário' : 'Salvar Alterações'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
+
+// --- COMPONENTES AUXILIARES DE TAREFAS ---
+function TasksView({ tasks, onOpenModal, onMoveTask, onDeleteTask }: any) {
+  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
+  const [priorityFilter, setPriorityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all')
+  const [searchTerm, setSearchTerm] = useState('')
+
+  // Filtragem
+  const filteredTasks = tasks
+    .filter((t: Task) => priorityFilter === 'all' || t.priority === priorityFilter)
+    .filter((t: Task) => t.title.toLowerCase().includes(searchTerm.toLowerCase()))
+
+  // Sumário
+  const summary = `${tasks.filter((t: Task) => t.status === 'todo').length} a fazer . ${tasks.filter((t: Task) => t.status === 'doing').length} em progresso . ${tasks.filter((t: Task) => t.status === 'done').length} concluído`
+
+  const todo = filteredTasks.filter((t: Task) => t.status === 'todo')
+  const doing = filteredTasks.filter((t: Task) => t.status === 'doing')
+  const done = filteredTasks.filter((t: Task) => t.status === 'done')
+
+  return (
+    <div className="max-w-7xl mx-auto h-full flex flex-col">
+      <header className="mb-6 flex justify-between items-end">
+        <div>
+          <h2 className="text-3xl font-bold text-white flex items-center gap-3">
+            <CheckSquare className="text-purple-400" /> Tarefas
+          </h2>
+          <p className="text-slate-400 mt-1">{summary}</p> 
+        </div>
+        <button onClick={() => onOpenModal(null)} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20">
+          <Plus size={18} /> Nova Tarefa
+        </button>
+      </header>
+      
+      {/* Barra de Controles */}
+      <div className="flex justify-between items-center mb-6 bg-[#16181D] border border-white/5 rounded-xl p-4">
+        {/* Busca por Tarefa */}
+        <div className="relative w-1/3 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+          <input 
+            type="text" 
+            placeholder="Buscar por título..." 
+            value={searchTerm} 
+            onChange={(e) => setSearchTerm(e.target.value)} 
+            className="w-full bg-[#0F1115] border border-white/5 rounded-lg py-2 pl-10 pr-4 text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500" 
+          />
+        </div>
+
+        {/* Filtros de Prioridade */}
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-slate-400 hidden sm:block">Prioridade:</span>
+          {['all', 'low', 'medium', 'high'].map(p => (
+            <FilterButton key={p} 
+              active={priorityFilter === p} 
+              onClick={() => setPriorityFilter(p as any)}
+              label={p === 'all' ? 'Todas' : p.charAt(0).toUpperCase() + p.slice(1)}
+              color={p === 'all' ? 'slate' : p === 'high' ? 'red' : p === 'medium' ? 'yellow' : 'blue'}
+            />
+          ))}
+        </div>
+
+        {/* Alternância de Visualização */}
+        <div className="flex gap-2 text-slate-400">
+          <button onClick={() => setViewMode('kanban')} className={`p-2 rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-purple-600 text-white' : 'hover:bg-white/5'}`} title="Kanban">
+            <LayoutDashboard size={18} />
+          </button>
+          <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-purple-600 text-white' : 'hover:bg-white/5'}`} title="Lista">
+            <List size={18} />
+          </button>
+        </div>
+      </div>
+      
+      {/* Conteúdo da Visualização */}
+      {viewMode === 'kanban' ? (
+        <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
+          <KanbanColumn 
+            title="A Fazer" count={todo.length} icon={<Circle size={18} />} color="text-slate-400"
+            tasks={todo} onMove={onMoveTask} onDelete={onDeleteTask} onOpenModal={onOpenModal}
+          />
+          <KanbanColumn 
+            title="Fazendo" count={doing.length} icon={<Clock size={18} />} color="text-orange-400"
+            tasks={doing} onMove={onMoveTask} onDelete={onDeleteTask} onOpenModal={onOpenModal}
+          />
+          <KanbanColumn 
+            title="Concluído" count={done.length} icon={<CheckCircle size={18} />} color="text-emerald-400"
+            tasks={done} onMove={onMoveTask} onDelete={onDeleteTask} onOpenModal={onOpenModal}
+          />
+        </div>
+      ) : (
+        <ListView 
+          tasks={filteredTasks} 
+          onMoveTask={onMoveTask} 
+          onDeleteTask={onDeleteTask} 
+          onOpenModal={onOpenModal}
+        />
+      )}
+    </div>
+  )
+}
+
+function KanbanColumn({ title, count, icon, color, tasks, onMove, onDelete, onOpenModal }: any) {
+  return (
+    <div className="bg-[#16181D] border border-white/5 rounded-xl flex flex-col h-full">
+      <div className="p-3 border-b border-white/5 flex justify-between items-center">
+        <div className={`flex items-center gap-2 font-medium text-sm ${color}`}>
+          {icon} <span>{title}</span>
+          <span className="bg-[#1A1D24] text-slate-400 px-2 py-0.5 rounded-full text-xs">{count}</span>
+        </div>
+      </div>
+
+      <div className="p-3 flex-1 flex flex-col gap-2 overflow-y-auto">
+        {tasks.map((task: Task) => (
+          <TaskCard 
+            key={task.id} 
+            task={task} 
+            onMove={onMove} 
+            onDelete={onDelete} 
+            onOpenModal={onOpenModal}
+          />
+        ))}
+        {tasks.length === 0 && (
+          <p className="text-center text-slate-600 text-sm italic py-4">Nenhuma tarefa aqui.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TaskCard({ task, onMove, onDelete, onOpenModal }: any) {
+  
+  const getPriorityColor = (priority: Task['priority']) => {
+    if (priority === 'high') return 'bg-red-500' 
+    if (priority === 'medium') return 'bg-yellow-500'
+    return 'bg-blue-500'
+  }
+
+  return (
+    <div className="bg-[#1D1F24] p-3 rounded-lg border border-white/5 hover:border-purple-500/30 group relative transition-all shadow-sm">
+      <div className="flex justify-between items-start mb-1">
+        
+        {/* Título (Apenas Leitura, Clicar no ícone de edição) */}
+        <h4 className="text-slate-200 font-medium text-sm pr-6 break-words">
+          {task.title || "(Sem Título)"}
+        </h4>
+
+        {/* Bolinha de Prioridade (Não Clicável Aqui) */}
+        <div 
+          className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${getPriorityColor(task.priority)}`} 
+          title={`Prioridade: ${task.priority}`}
+        />
+      </div>
+      
+      {/* Botões de Ação no Canto */}
+      <div className="absolute top-1 right-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button 
+          onClick={() => onOpenModal(task)}
+          className="p-1 text-slate-500 hover:text-purple-400 hover:bg-purple-900/20 rounded-md"
+          title="Editar Tarefa"
+        >
+          <Edit size={12} />
+        </button>
+        <button 
+          onClick={() => onDelete(task.id)}
+          className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded-md"
+          title="Excluir"
+        >
+          <Trash2 size={12} />
+        </button>
+      </div>
+
+
+      {/* Botões de Movimentação */}
+      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
+        {task.status !== 'todo' && <button onClick={() => onMove(task.id, 'todo')} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded hover:text-white">To Do</button>}
+        {task.status !== 'doing' && <button onClick={() => onMove(task.id, 'doing')} className="text-[10px] bg-slate-800 text-orange-400 px-2 py-0.5 rounded hover:text-white">Doing</button>}
+        {task.status !== 'done' && <button onClick={() => onMove(task.id, 'done')} className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-0.5 rounded hover:text-white">Done</button>}
+      </div>
+    </div>
+  )
+}
+
+function ListView({ tasks, onMoveTask, onDeleteTask, onOpenModal }: any) {
+  const sortedTasks = [...tasks].sort((a: Task, b: Task) => {
+    const statusOrder = { 'todo': 1, 'doing': 2, 'done': 3 }
+    const priorityOrder = { 'high': 1, 'medium': 2, 'low': 3 }
+    
+    if (statusOrder[a.status] !== statusOrder[b.status]) {
+      return statusOrder[a.status] - statusOrder[b.status]
+    }
+    return priorityOrder[a.priority] - priorityOrder[b.priority]
+  })
+
+  const getStatusIcon = (status: Task['status']) => {
+    if (status === 'done') return <CheckCircle size={16} className="text-emerald-400" />
+    if (status === 'doing') return <Clock size={16} className="text-orange-400" />
+    return <Circle size={16} className="text-slate-400" />
+  }
+
+  const getPriorityColor = (priority: Task['priority']) => {
+    if (priority === 'high') return 'bg-red-500 shadow-md shadow-red-900/50'
+    if (priority === 'medium') return 'bg-yellow-500 shadow-md shadow-yellow-900/50'
+    return 'bg-blue-500 shadow-md shadow-blue-900/50'
+  }
+
+  return (
+    <div className="bg-[#16181D] border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-full">
+      <table className="w-full text-left">
+        <thead className="bg-[#0F1115] text-slate-400 border-b border-white/5">
+          <tr>
+            <th className="p-4 w-[10%]">Status</th>
+            <th className="p-4 w-[10%]">Prioridade</th>
+            <th className="p-4 w-[60%]">Título</th>
+            <th className="p-4 w-[20%] text-right">Ações</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5">
+          {sortedTasks.map((task: Task) => (
+            <tr key={task.id} className="hover:bg-white/5 transition-colors">
+              <td className="p-4">
+                <div className="flex items-center gap-2">
+                  {getStatusIcon(task.status)}
+                  <span className="text-sm capitalize text-slate-300">{task.status === 'todo' ? 'A fazer' : task.status === 'doing' ? 'Fazendo' : 'Concluído'}</span>
+                </div>
+              </td>
+              <td className="p-4">
+                <button 
+                  onClick={() => onOpenModal(task)}
+                  className={`w-3 h-3 rounded-full cursor-pointer hover:scale-125 transition-transform ${getPriorityColor(task.priority)}`} 
+                  title={`Prioridade: ${task.priority} (Clique para editar)`}
+                />
+              </td>
+              <td className="p-4">
+                 <button onClick={() => onOpenModal(task)} className="text-slate-200 text-sm hover:text-purple-300 transition-colors w-full text-left">{task.title}</button>
+              </td>
+              <td className="p-4 text-right">
+                <div className="flex justify-end gap-2">
+                  {task.status !== 'todo' && <button onClick={() => onMoveTask(task.id, 'todo')} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded hover:text-white">To Do</button>}
+                  {task.status !== 'doing' && <button onClick={() => onMoveTask(task.id, 'doing')} className="text-[10px] bg-slate-800 text-orange-400 px-2 py-1 rounded hover:text-white">Doing</button>}
+                  {task.status !== 'done' && <button onClick={() => onMoveTask(task.id, 'done')} className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-1 rounded hover:text-white">Done</button>}
+                  <button onClick={() => onDeleteTask(task.id)} className="p-1 ml-2 text-slate-600 hover:text-red-400"><Trash2 size={16} /></button>
+                </div>
+              </td>
+            </tr>
+          ))}
+          {sortedTasks.length === 0 && (
+            <tr>
+              <td colSpan={4} className="text-center text-slate-500 py-8">Nenhuma tarefa encontrada com os filtros atuais.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function FilterButton({ active, onClick, label, color }: { active: boolean, onClick: () => void, label: string, color: 'slate' | 'red' | 'yellow' | 'blue' }) {
+  const baseClasses = "text-xs px-3 py-1.5 rounded-full font-medium transition-all"
+  const activeClasses = {
+    'slate': 'bg-slate-700 text-white',
+    'red': 'bg-red-900/40 text-red-300 border border-red-500/30',
+    'yellow': 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/30',
+    'blue': 'bg-blue-900/40 text-blue-300 border border-blue-500/30',
+  }[color]
+  const inactiveClasses = "bg-slate-800 text-slate-400 hover:bg-slate-700/50"
+
+  return (
+    <button onClick={onClick} className={`${baseClasses} ${active ? activeClasses : inactiveClasses}`}>
+      {label}
     </button>
   )
 }
 
-
-// (REQUISITE_STATUSES removido — não é usado atualmente)
-
-function PrerequisiteListBox({ currentPrereqs, allSubjects, onChange, disabled, currentSubjectCode }: { currentPrereqs: string, allSubjects: Subject[], onChange: (value: string) => void, disabled: boolean, currentSubjectCode: string }) {
-    
-    // 1. Converte string para array de códigos
-    const selectedCodes = currentPrereqs.split(';').map(tag => tag.trim()).filter(tag => tag.length > 0);
-    
-    const [searchTerm, setSearchTerm] = useState('');
-    
-    // Matérias que podem ser selecionadas como pré-requisitos (excluindo a própria)
-    const availableSubjects = allSubjects
-        .filter(sub => sub.code !== currentSubjectCode) 
-        .filter(sub => 
-            sub.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-            sub.code.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-        .sort((a, b) => a.code.localeCompare(b.code)); 
-
-    // 2. Handler de seleção (Adicionar/Remover)
-    const handleTogglePrereq = (code: string) => {
-        if (disabled) return; // Só executa se NÃO estiver disabled (ou seja, isEditing=true)
-        
-        let newCodes;
-        
-        if (selectedCodes.includes(code)) {
-            // Remove código
-            newCodes = selectedCodes.filter(c => c !== code);
-        } else {
-            // Adiciona código
-            newCodes = [...selectedCodes, code];
-        }
-        
-        // Garante que a string está formatada corretamente
-        onChange(newCodes.join('; '));
-    };
-
-    // 4. Renderiza o status visual da matéria na grade
-    const getRequisiteVisualStatus = (sub: Subject) => {
-        if (sub.status === 'done' || (sub.grade !== undefined && sub.grade >= 6)) {
-            return { label: 'Aprovado', icon: <CheckCircle size={14} className="text-emerald-400" />, classes: 'bg-emerald-600/20 text-emerald-300' };
-        }
-        if (sub.status === 'doing') {
-            return { label: 'Cursando', icon: <Clock size={14} className="text-orange-400" />, classes: 'bg-orange-600/20 text-orange-300' };
-        }
-        if (sub.status === 'failed' || (sub.grade !== undefined && sub.grade < 6)) {
-             return { label: 'Reprovado', icon: <X size={14} className="text-red-400" />, classes: 'bg-red-600/20 text-red-300' };
-        }
-        return { label: 'Pendente', icon: <Circle size={14} className="text-slate-500" />, classes: 'bg-slate-600/20 text-slate-400' };
-    };
-
-    return (
-        <div className={`space-y-3 ${disabled ? 'opacity-70' : ''}`}>
-            
-            {/* Input de Busca */}
-            <div className="relative">
-                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                <input
-                    type="text"
-                    placeholder="Buscar disciplina por código ou nome..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 pl-10 text-white focus:border-purple-500 outline-none"
-                    // O input deve ser disabled se o componente estiver disabled
-                    disabled={disabled}
-                />
-            </div>
-            
-            {/* Lista de Seleção (List Box) */}
-            <div className="bg-[#1A1D24] border border-white/10 rounded-xl max-h-60 overflow-y-auto shadow-inner">
-                {availableSubjects.length > 0 ? availableSubjects.map((sub) => {
-                    const isSelected = selectedCodes.includes(sub.code);
-                    const visualStatus = getRequisiteVisualStatus(sub);
-
-                    return (
-                        // ATENÇÃO: Removemos o atributo 'disabled' do button aqui.
-                        <button
-                            key={sub.code}
-                            type="button"
-                            onClick={() => handleTogglePrereq(sub.code)}
-                            className={`w-full text-left px-4 py-2 flex items-center justify-between transition-colors ${
-                                isSelected 
-                                    ? 'bg-purple-600/50 text-white font-medium hover:bg-purple-600/70'
-                                    : 'text-slate-300 hover:bg-white/5'
-                            } ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
-                            // A lógica de disabled/cursor é tratada pelo CSS e pelo guard clause no handler
-                        >
-                            <span className="truncate flex items-center gap-2">
-                                {/* Checkbox de Seleção */}
-                                <span className={`p-1 rounded-sm ${isSelected ? 'bg-purple-400' : 'bg-slate-700'}`}>
-                                    {isSelected ? <CheckSquare size={14} className='text-white' /> : <Circle size={14} className='text-slate-500' />}
-                                </span>
-                                
-                                <span className="font-bold mr-2">{sub.code}</span>
-                                {sub.name}
-                            </span>
-                            
-                            {/* Status da Matéria */}
-                            <span className={`text-xs px-2 py-0.5 rounded-full flex items-center gap-1 ${visualStatus.classes} flex-shrink-0`}>
-                                {visualStatus.icon} {visualStatus.label}
-                            </span>
-                        </button>
-                    );
-                }) : (
-                     <p className="p-4 text-center text-slate-500 text-sm">Nenhuma disciplina encontrada ou disponível.</p>
-                )}
-            </div>
-        </div>
-    );
+// Componente simples de filtro dropdown usado na Matriz Curricular
+function DropdownFilter({ label, options, onSelect }: { label: string, options: string[], onSelect: (v: string) => void }) {
+  return (
+    <div className="">
+      <select
+        value={label}
+        onChange={(e) => onSelect(e.target.value)}
+        className="bg-[#1D2430] border border-white/5 text-slate-200 rounded-xl py-3 px-4 focus:outline-none"
+      >
+        {options.map(opt => (
+          <option key={opt} value={opt} className="text-slate-800">{opt}</option>
+        ))}
+      </select>
+    </div>
+  )
 }
 
 // =================================================================
@@ -942,7 +1623,7 @@ const groupedSubjects = filteredSubjects.reduce((acc, sub) => {
                       placeholder="Buscar disciplina..." 
                       value={searchTerm} 
                       onChange={(e) => setSearchTerm(e.target.value)} 
-                      className="w-full bg-[#1A1D24] border border-white/5 rounded-xl py-3 pl-12 pr-4 text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500" 
+                      className="w-full bg-[#1D2430] border border-white/5 rounded-xl py-3 pl-12 pr-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50" 
                   />
               </div>
 
@@ -963,7 +1644,7 @@ const groupedSubjects = filteredSubjects.reduce((acc, sub) => {
               {/* Botão Nova Disciplina (Corrigido o alinhamento) */}
               <button 
                   onClick={() => onOpenModal(null)}
-                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-3 rounded-xl font-medium flex items-center gap-2 transition-all flex-shrink-0"
+                  className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-3 rounded-xl font-medium flex items-center gap-2 transition-all"
               >
                   <Plus size={18} /> Nova Disciplina
               </button>
@@ -1123,9 +1804,9 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
     const [isEditing, setIsEditing] = useState(true); // Se você deixou o default como true
     const [showPrerequisites, setShowPrerequisites] = useState(false); 
 
-    // --- DENTRO DE function SubjectDetailModal(...) ---
+    // --- DENTRO DE function SubjectDetailModal(...)
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         let newValue: any = value;
 
@@ -1145,14 +1826,10 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
         setData(prev => ({ ...prev, [name]: newValue }));
     };
 
-// ...
-
     const handlePrereqChange = (newPrereqs: string) => {
         setData(prev => ({ ...prev, finalNote: newPrereqs }));
     };
     
-    // ... (restante dos handlers: handleStatusChange, handleSubmit) ...
-
     const handleStatusChange = (status: Subject['status']) => {
         let newGrade = data.grade;
 
@@ -1228,7 +1905,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                 value={data.name}
                                 onChange={handleChange}
                                 placeholder="Nome Completo"
-                                className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                 disabled={!isEditing}
                                 required
                             />
@@ -1242,7 +1919,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                 value={data.code}
                                 onChange={handleChange}
                                 placeholder="Ex: EC301"
-                                className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                 disabled={!isEditing}
                                 required
                             />
@@ -1259,7 +1936,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   name="status"
                                   value={data.status}
                                   onChange={(e) => handleStatusChange(e.target.value as Subject['status'])}
-                                  className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               >
                                   <option value="done">Concluída (Aprovada)</option>
@@ -1278,7 +1955,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   value={data.academic_period || ''}
                                   onChange={handleChange}
                                   placeholder={typeof getCurrentAcademicPeriod === 'function' ? getCurrentAcademicPeriod() : 'Ex: 2025/1'}
-                                  className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               />
                               <p className="text-xs text-slate-500 mt-1">Para o Dashboard de Desempenho (YYYY/S)</p>
@@ -1297,7 +1974,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   step="0.1"
                                   min="0"
                                   max="10"
-                                  className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               />
                           </div>
@@ -1314,7 +1991,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                   value={data.semester}
                                   onChange={handleChange}
                                   placeholder="Ex: 1º Semestre"
-                                  className="w-full bg-[#1A1D24] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                  className="w-full bg-[#1D1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                   disabled={!isEditing}
                               />
                           </div>
@@ -1659,7 +2336,7 @@ function ImportPPCView({ onImportSubjects }: { onImportSubjects: (subjects: Subj
                     placeholder="Cole aqui o conteúdo do PPC/matriz curricular..."
                     value={rawText}
                     onChange={(e) => setRawText(e.target.value)}
-                    className="w-full bg-[#1A1D24] border border-white/5 rounded-xl p-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y"
+                    className="w-full bg-[#1D24] border border-white/5 rounded-xl p-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50 resize-y"
                 />
             </div>
 
@@ -1721,7 +2398,7 @@ function CalculatorReferenceView({ subjects, onSave }: { subjects: Subject[], on
       
       <div className="relative mb-6">
         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={20} />
-        <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#1A1D24] border border-white/5 rounded-xl py-4 pl-12 pr-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50" />
+        <input type="text" placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full bg-[#1D2430] border border-white/5 rounded-xl py-4 pl-12 pr-4 text-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500/50" />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1919,754 +2596,115 @@ function ScheduleView({ schedule, onOpenModal }: { schedule: ScheduleItem[], onO
     );
 }
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE HORÁRIO ---
-function ScheduleModal({ item, subjects, onSave, onDelete, onClose }: { item: ScheduleItem, subjects: Subject[], onSave: (data: ScheduleItem) => void, onDelete?: (id: string) => void, onClose: () => void }) {
-    const isNew = item.id === 'new';
-    const [scheduleData, setScheduleData] = useState<ScheduleItem>(item);
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setScheduleData(prev => ({ ...prev, [name]: value }));
-    };
+// --- COMPONENTE AUXILIAR: MODAL DE NOTAS ---
+function NotesView({ notes, subjects, onOpenModal, onDeleteNote, onSaveNote }: { notes: Note[], subjects: Subject[], onOpenModal: (n: Note | null) => void, onDeleteNote: (id: string) => void, onSaveNote: (n: Note) => void }) {
+  const [search, setSearch] = useState('')
+  const [filterSubject, setFilterSubject] = useState('')
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!scheduleData.title.trim() || !scheduleData.startTime || !scheduleData.endTime) {
-            alert("Título, hora de início e hora de fim são obrigatórios.");
-            return;
-        }
-        onSave(scheduleData);
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-[#1A1D24] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-                
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-2xl font-bold text-white">{isNew ? 'Novo Horário' : 'Editar Horário'}</h2>
-                    <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={24} /></button>
-                </div>
-
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    
-                    {/* TÍTULO */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Título</label>
-                        <input
-                            type="text"
-                            name="title"
-                            value={scheduleData.title}
-                            onChange={handleChange}
-                            placeholder="Ex: Cálculo I (Aula Teórica)"
-                            className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-                            required
-                        />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* TIPO */}
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">Tipo</label>
-                            <select
-                                name="type"
-                                value={scheduleData.type}
-                                onChange={handleChange}
-                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-                            >
-                                <option value="Aula">Aula</option>
-                                <option value="Trabalho">Trabalho/Estudo</option>
-                                <option value="Compromisso">Compromisso</option>
-                            </select>
-                        </div>
-                        
-                        {/* DIA DA SEMANA */}
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">Dia</label>
-                            <select
-                                name="day"
-                                value={scheduleData.day}
-                                onChange={handleChange}
-                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-                            >
-                                {DAYS.map(day => <option key={day} value={day}>{day}</option>)}
-                            </select>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        {/* START TIME */}
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">Início</label>
-                            <input
-                                type="time"
-                                name="startTime"
-                                value={scheduleData.startTime}
-                                onChange={handleChange}
-                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-                                required
-                            />
-                        </div>
-                        
-                        {/* END TIME */}
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-1">Fim</label>
-                            <input
-                                type="time"
-                                name="endTime"
-                                value={scheduleData.endTime}
-                                onChange={handleChange}
-                                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-                                required
-                            />
-                        </div>
-                    </div>
-                    
-                    {/* DISCIPLINA (Opcional - ÚNICA SELEÇÃO) */}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-400 mb-1">Vincular Disciplina (Opcional)</label>
-                        <select
-                            name="subjectId"
-                            value={scheduleData.subjectId || ''}
-                            onChange={(e) => setScheduleData(prev => ({ ...prev, subjectId: e.target.value || undefined }))}
-                            className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-                        >
-                            <option value="">(Nenhuma)</option>
-                            {subjects.map(sub => (
-                                <option key={sub.id} value={sub.id}>{sub.code} - {sub.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="pt-4 flex justify-between items-center">
-                        {onDelete && !isNew ? (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    onDelete(item.id);
-                                    onClose(); // Fecha o modal após deletar
-                                }}
-                                className="text-red-400 hover:text-red-300 p-2 transition-colors flex items-center gap-1"
-                            >
-                                <Trash2 size={18} /> Excluir
-                            </button>
-                        ) : (
-                            <div/>
-                        )}
-                        <button
-                            type="submit"
-                            className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all"
-                        >
-                            <Save size={18} /> {isNew ? 'Criar Horário' : 'Salvar Alterações'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    );
-}
-
-
-// --- COMPONENTES AUXILIARES DE TAREFAS ---
-function TasksView({ tasks, onOpenModal, onMoveTask, onDeleteTask }: any) {
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
-  const [priorityFilter, setPriorityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all')
-  const [searchTerm, setSearchTerm] = useState('')
-
-  // Filtragem
-  const filteredTasks = tasks
-    .filter((t: Task) => priorityFilter === 'all' || t.priority === priorityFilter)
-    .filter((t: Task) => t.title.toLowerCase().includes(searchTerm.toLowerCase()))
-
-  // Sumário
-  const summary = `${tasks.filter((t: Task) => t.status === 'todo').length} a fazer . ${tasks.filter((t: Task) => t.status === 'doing').length} em progresso . ${tasks.filter((t: Task) => t.status === 'done').length} concluído`
-
-  const todo = filteredTasks.filter((t: Task) => t.status === 'todo')
-  const doing = filteredTasks.filter((t: Task) => t.status === 'doing')
-  const done = filteredTasks.filter((t: Task) => t.status === 'done')
+  const filtered = notes.filter(n => {
+    if (search && !((n.title || '').toLowerCase().includes(search.toLowerCase()) || (n.content || '').toLowerCase().includes(search.toLowerCase()))) return false
+    if (filterSubject && n.subjectId !== filterSubject) return false
+    return true
+  }).sort((a,b) => (b.date || '').localeCompare(a.date || ''))
 
   return (
-    <div className="max-w-7xl mx-auto h-full flex flex-col">
-      <header className="mb-6 flex justify-between items-end">
-        <div>
-          <h2 className="text-3xl font-bold text-white flex items-center gap-3">
-            <CheckSquare className="text-purple-400" /> Tarefas
-          </h2>
-          <p className="text-slate-400 mt-1">{summary}</p> 
+    <div className="max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold">Anotações</h2>
+          
         </div>
-        <button onClick={() => onOpenModal(null)} className="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20">
-          <Plus size={18} /> Nova Tarefa
-        </button>
-      </header>
-      
-      {/* Barra de Controles */}
-      <div className="flex justify-between items-center mb-6 bg-[#16181D] border border-white/5 rounded-xl p-4">
-        {/* Busca por Tarefa */}
-        <div className="relative w-1/3 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-          <input 
-            type="text" 
-            placeholder="Buscar por título..." 
-            value={searchTerm} 
-            onChange={(e) => setSearchTerm(e.target.value)} 
-            className="w-full bg-[#0F1115] border border-white/5 rounded-lg py-2 pl-10 pr-4 text-slate-200 focus:outline-none focus:ring-1 focus:ring-purple-500" 
-          />
-        </div>
-
-        {/* Filtros de Prioridade */}
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-slate-400 hidden sm:block">Prioridade:</span>
-          {['all', 'low', 'medium', 'high'].map(p => (
-            <FilterButton key={p} 
-              active={priorityFilter === p} 
-              onClick={() => setPriorityFilter(p as any)}
-              label={p === 'all' ? 'Todas' : p.charAt(0).toUpperCase() + p.slice(1)}
-              color={p === 'all' ? 'slate' : p === 'high' ? 'red' : p === 'medium' ? 'yellow' : 'blue'}
-            />
-          ))}
-        </div>
-
-        {/* Alternância de Visualização */}
-        <div className="flex gap-2 text-slate-400">
-          <button onClick={() => setViewMode('kanban')} className={`p-2 rounded-lg transition-colors ${viewMode === 'kanban' ? 'bg-purple-600 text-white' : 'hover:bg-white/5'}`} title="Kanban">
-            <LayoutDashboard size={18} />
-          </button>
-          <button onClick={() => setViewMode('list')} className={`p-2 rounded-lg transition-colors ${viewMode === 'list' ? 'bg-purple-600 text-white' : 'hover:bg-white/5'}`} title="Lista">
-            <List size={18} />
-          </button>
-        </div>
-      </div>
-      
-      {/* Conteúdo da Visualização */}
-      {viewMode === 'kanban' ? (
-        <div className="grid grid-cols-3 gap-4 flex-1 min-h-0">
-          <KanbanColumn 
-            title="A Fazer" count={todo.length} icon={<Circle size={18} />} color="text-slate-400"
-            tasks={todo} onMove={onMoveTask} onDelete={onDeleteTask} onOpenModal={onOpenModal}
-          />
-          <KanbanColumn 
-            title="Fazendo" count={doing.length} icon={<Clock size={18} />} color="text-orange-400"
-            tasks={doing} onMove={onMoveTask} onDelete={onDeleteTask} onOpenModal={onOpenModal}
-          />
-          <KanbanColumn 
-            title="Concluído" count={done.length} icon={<CheckCircle size={18} />} color="text-emerald-400"
-            tasks={done} onMove={onMoveTask} onDelete={onDeleteTask} onOpenModal={onOpenModal}
-          />
-        </div>
-      ) : (
-        <ListView 
-          tasks={filteredTasks} 
-          onMoveTask={onMoveTask} 
-          onDeleteTask={onDeleteTask} 
-          onOpenModal={onOpenModal}
-        />
-      )}
-    </div>
-  )
-}
-
-function KanbanColumn({ title, count, icon, color, tasks, onMove, onDelete, onOpenModal }: any) {
-  return (
-    <div className="bg-[#16181D] border border-white/5 rounded-xl flex flex-col h-full">
-      <div className="p-3 border-b border-white/5 flex justify-between items-center">
-        <div className={`flex items-center gap-2 font-medium text-sm ${color}`}>
-          {icon} <span>{title}</span>
-          <span className="bg-[#1A1D24] text-slate-400 px-2 py-0.5 rounded-full text-xs">{count}</span>
+        <div className="flex items-center gap-2">
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar notas..." className="bg-[#0F1115] border border-white/5 rounded-xl py-2 px-3 text-slate-200" />
+          <select value={filterSubject} onChange={e => setFilterSubject(e.target.value)} className="bg-[#0F1115] border border-white/5 rounded-xl py-2 px-3 text-slate-200">
+            <option value="">Todas disciplinas</option>
+            {subjects.map(s => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+          </select>
+          <button onClick={() => onOpenModal(null)} className="px-3 py-2 bg-purple-600 rounded text-white flex items-center gap-2"><Plus size={14}/>Nova</button>
         </div>
       </div>
 
-      <div className="p-3 flex-1 flex flex-col gap-2 overflow-y-auto">
-        {tasks.map((task: Task) => (
-          <TaskCard 
-            key={task.id} 
-            task={task} 
-            onMove={onMove} 
-            onDelete={onDelete} 
-            onOpenModal={onOpenModal}
-          />
-        ))}
-        {tasks.length === 0 && (
-          <p className="text-center text-slate-600 text-sm italic py-4">Nenhuma tarefa aqui.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filtered.length === 0 && (
+          <div className="text-slate-400 p-6">Nenhuma anotação encontrada.</div>
         )}
-      </div>
-    </div>
-  )
-}
-
-function TaskCard({ task, onMove, onDelete, onOpenModal }: any) {
-  
-  const getPriorityColor = (priority: Task['priority']) => {
-    if (priority === 'high') return 'bg-red-500' 
-    if (priority === 'medium') return 'bg-yellow-500'
-    return 'bg-blue-500'
-  }
-
-  return (
-    <div className="bg-[#1A1D24] p-3 rounded-lg border border-white/5 hover:border-purple-500/30 group relative transition-all shadow-sm">
-      <div className="flex justify-between items-start mb-1">
-        
-        {/* Título (Apenas Leitura, Clicar no ícone de edição) */}
-        <h4 className="text-slate-200 font-medium text-sm pr-6 break-words">
-          {task.title || "(Sem Título)"}
-        </h4>
-
-        {/* Bolinha de Prioridade (Não Clicável Aqui) */}
-        <div 
-          className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${getPriorityColor(task.priority)}`} 
-          title={`Prioridade: ${task.priority}`}
-        />
-      </div>
-      
-      {/* Botões de Ação no Canto */}
-      <div className="absolute top-1 right-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button 
-          onClick={() => onOpenModal(task)}
-          className="p-1 text-slate-500 hover:text-purple-400 hover:bg-purple-900/20 rounded-md"
-          title="Editar Tarefa"
-        >
-          <Edit size={12} />
-        </button>
-        <button 
-          onClick={() => onDelete(task.id)}
-          className="p-1 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded-md"
-          title="Excluir"
-        >
-          <Trash2 size={12} />
-        </button>
-      </div>
-
-
-      {/* Botões de Movimentação */}
-      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
-        {task.status !== 'todo' && <button onClick={() => onMove(task.id, 'todo')} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded hover:text-white">To Do</button>}
-        {task.status !== 'doing' && <button onClick={() => onMove(task.id, 'doing')} className="text-[10px] bg-slate-800 text-orange-400 px-2 py-0.5 rounded hover:text-white">Doing</button>}
-        {task.status !== 'done' && <button onClick={() => onMove(task.id, 'done')} className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-0.5 rounded hover:text-white">Done</button>}
-      </div>
-    </div>
-  )
-}
-
-function ListView({ tasks, onMoveTask, onDeleteTask, onOpenModal }: any) {
-  const sortedTasks = [...tasks].sort((a: Task, b: Task) => {
-    const statusOrder = { 'todo': 1, 'doing': 2, 'done': 3 }
-    const priorityOrder = { 'high': 1, 'medium': 2, 'low': 3 }
-    
-    if (statusOrder[a.status] !== statusOrder[b.status]) {
-      return statusOrder[a.status] - statusOrder[b.status]
-    }
-    return priorityOrder[a.priority] - priorityOrder[b.priority]
-  })
-
-  const getStatusIcon = (status: Task['status']) => {
-    if (status === 'done') return <CheckCircle size={16} className="text-emerald-400" />
-    if (status === 'doing') return <Clock size={16} className="text-orange-400" />
-    return <Circle size={16} className="text-slate-400" />
-  }
-
-  const getPriorityColor = (priority: Task['priority']) => {
-    if (priority === 'high') return 'bg-red-500 shadow-md shadow-red-900/50'
-    if (priority === 'medium') return 'bg-yellow-500 shadow-md shadow-yellow-900/50'
-    return 'bg-blue-500 shadow-md shadow-blue-900/50'
-  }
-
-  return (
-    <div className="bg-[#16181D] border border-white/5 rounded-xl overflow-hidden shadow-lg min-h-full">
-      <table className="w-full text-left">
-        <thead className="bg-[#0F1115] text-slate-400 border-b border-white/5">
-          <tr>
-            <th className="p-4 w-[10%]">Status</th>
-            <th className="p-4 w-[10%]">Prioridade</th>
-            <th className="p-4 w-[60%]">Título</th>
-            <th className="p-4 w-[20%] text-right">Ações</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {sortedTasks.map((task: Task) => (
-            <tr key={task.id} className="hover:bg-white/5 transition-colors">
-              <td className="p-4">
-                <div className="flex items-center gap-2">
-                  {getStatusIcon(task.status)}
-                  <span className="text-sm capitalize text-slate-300">{task.status === 'todo' ? 'A fazer' : task.status === 'doing' ? 'Fazendo' : 'Concluído'}</span>
+        {filtered.map(note => {
+          const subj = subjects.find(s => s.id === note.subjectId)
+          return (
+            <div key={note.id} className="bg-[#13151A] border border-white/5 rounded-2xl p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-semibold">{note.title}</h3>
+                  <div className="text-xs text-slate-400">{note.date?.slice(0,10)} {subj ? `• ${subj.code}` : ''}</div>
                 </div>
-              </td>
-              <td className="p-4">
-                <button 
-                  onClick={() => onOpenModal(task)}
-                  className={`w-3 h-3 rounded-full cursor-pointer hover:scale-125 transition-transform ${getPriorityColor(task.priority)}`} 
-                  title={`Prioridade: ${task.priority} (Clique para editar)`}
-                />
-              </td>
-              <td className="p-4">
-                 <button onClick={() => onOpenModal(task)} className="text-slate-200 text-sm hover:text-purple-300 transition-colors w-full text-left">{task.title}</button>
-              </td>
-              <td className="p-4 text-right">
-                <div className="flex justify-end gap-2">
-                  {task.status !== 'todo' && <button onClick={() => onMoveTask(task.id, 'todo')} className="text-[10px] bg-slate-800 text-slate-400 px-2 py-1 rounded hover:text-white">To Do</button>}
-                  {task.status !== 'doing' && <button onClick={() => onMoveTask(task.id, 'doing')} className="text-[10px] bg-slate-800 text-orange-400 px-2 py-1 rounded hover:text-white">Doing</button>}
-                  {task.status !== 'done' && <button onClick={() => onMoveTask(task.id, 'done')} className="text-[10px] bg-slate-800 text-emerald-400 px-2 py-1 rounded hover:text-white">Done</button>}
-                  <button onClick={() => onDeleteTask(task.id)} className="p-1 ml-2 text-slate-600 hover:text-red-400"><Trash2 size={16} /></button>
+                <div className="flex gap-2">
+                  <button onClick={() => onOpenModal(note)} className="text-slate-400 hover:text-slate-200"><Edit size={16} /></button>
+                  <button onClick={() => onDeleteNote(note.id)} className="text-slate-400 hover:text-red-400"><Trash2 size={16} /></button>
                 </div>
-              </td>
-            </tr>
-          ))}
-          {sortedTasks.length === 0 && (
-            <tr>
-              <td colSpan={4} className="text-center text-slate-500 py-8">Nenhuma tarefa encontrada com os filtros atuais.</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function FilterButton({ active, onClick, label, color }: { active: boolean, onClick: () => void, label: string, color: 'slate' | 'red' | 'yellow' | 'blue' }) {
-  const baseClasses = "text-xs px-3 py-1.5 rounded-full font-medium transition-all"
-  const activeClasses = {
-    'slate': 'bg-slate-700 text-white',
-    'red': 'bg-red-900/40 text-red-300 border border-red-500/30',
-    'yellow': 'bg-yellow-900/40 text-yellow-300 border border-yellow-500/30',
-    'blue': 'bg-blue-900/40 text-blue-300 border border-blue-500/30',
-  }[color]
-  const inactiveClasses = "bg-slate-800 text-slate-400 hover:bg-slate-700/50"
-
-  return (
-    <button onClick={onClick} className={`${baseClasses} ${active ? activeClasses : inactiveClasses}`}>
-      {label}
-    </button>
-  )
-}
-
-// =================================================================
-// --- LÓGICA DE DADOS DE DESEMPENHO (SEMPRE ANTES DE function App()) ---
-// =================================================================
-
-// =================================================================
-// --- LÓGICA DE DADOS DE DESEMPENHO POR PERÍODO LETIVO (FINAL) ---
-// =================================================================
-
-// =================================================================
-// --- LÓGICA DE DADOS DE DESEMPENHO POR PERÍODO LETIVO (FINAL) ---
-// =================================================================
-
-// =================================================================
-// --- LÓGICA DE DADOS DE DESEMPENHO ATUALIZADA (COM REPROVADOS) ---
-// =================================================================
-
-// =================================================================
-// --- LÓGICA DE DADOS DE DESEMPENHO ATUALIZADA (COM CHECK DE NULL) ---
-// =================================================================
-
-function usePerformanceData(subjects: Subject[]) {
-    
-    // 🛑 CORREÇÃO CRÍTICA: Garante que subjects seja um array mesmo se undefined/null.
-    const validSubjects = subjects || []; 
-    
-    const currentPeriod = getCurrentAcademicPeriod();
-    const isValidPeriodFormat = (value: string) => /^\d{4}\/[12]$/.test(value);
-
-    // 1. Agrupar e Calcular Métricas por Período Letivo (YYYY/S)
-    const performanceByPeriod = validSubjects.reduce((acc, sub) => {
-        
-        let period: string | null = null;
-        
-    if (sub.academic_period && isValidPeriodFormat(sub.academic_period)) {
-      period = sub.academic_period;
-    } 
-    else if (sub.semester && isValidPeriodFormat(String(sub.semester))) {
-      period = String(sub.semester);
-        }
-        else if (sub.status === 'doing' || sub.status === 'pending') {
-            period = currentPeriod;
-        } 
-        else {
-            return acc; 
-        }
-        
-        if (!period) return acc;
-        
-        acc[period] = acc[period] || { total: 0, concluded: 0, doing: 0, failed: 0 }; 
-        
-        acc[period].total += 1;
-        
-        const isApproved = sub.status === 'done' && sub.grade && sub.grade >= 6;
-        const isDoing = sub.status === 'doing';
-        const isFailed = sub.status === 'failed' || (sub.grade !== undefined && sub.grade < 6 && sub.status !== 'doing');
-
-        if (isApproved) {
-            acc[period].concluded += 1;
-        } 
-        
-        if (isDoing) {
-            acc[period].doing += 1;
-        } 
-        
-        if (isFailed) {
-            acc[period].failed += 1;
-        }
-        
-        return acc;
-    }, {} as Record<string, { total: number, concluded: number, doing: number, failed: number }>);
-
-    // 2. Calcular Porcentagem de Desempenho e Ordenar
-    // Esta linha agora está segura, pois performanceByPeriod será sempre um objeto ({})
-    const sortedPerformance = Object.keys(performanceByPeriod).sort((a, b) => {
-        if (a > b) return 1;
-        if (a < b) return -1;
-        return 0;
-    }).map(period => {
-        const data = performanceByPeriod[period];
-        
-        const totalEvaluated = data.concluded + data.failed;
-        const successRate = totalEvaluated > 0 ? (data.concluded / totalEvaluated) * 100 : 0;
-        
-        return {
-            period: period, 
-            total: data.total,
-            concluded: data.concluded,
-            doing: data.doing,
-            failed: data.failed,
-            successPercentage: Math.round(successRate),
-            totalEvaluated: totalEvaluated,
-            isCurrent: period === currentPeriod 
-        };
-    });
-
-    return sortedPerformance;
-}
-
-// =================================================================
-// --- COMPONENTE VISUAL: PERFORMANCE VIEW (A FUNÇÃO PRINCIPAL QUE FALTAVA) ---
-// =================================================================
-
-// --- Componente Auxiliar para Exibir o Desempenho por Período ---
-// IMPORTANTE: Use este nome, e não SemesterPerformanceCard
-// --- Componente Auxiliar para Exibir o Desempenho por Período ---
-function PeriodPerformanceCard({ data }: { data: ReturnType<typeof usePerformanceData>[0] }) {
-    
-    const performanceColor = data.successPercentage >= 80 ? 'text-emerald-400' : 
-                             data.successPercentage >= 50 ? 'text-yellow-400' : 'text-red-400';
-
-    const barColor = data.successPercentage >= 80 ? 'bg-emerald-600' : 
-                     data.successPercentage >= 50 ? 'bg-yellow-600' : 'bg-red-600';
-    
-    const totalEvaluated = data.totalEvaluated; 
-
-    return (
-        <div className="bg-[#1A1D24] border border-white/5 p-6 rounded-2xl shadow-lg">
-            <h3 className="text-xl font-bold text-white border-b border-white/5 pb-3 mb-4 flex items-center justify-between">
-                
-                <span className="flex items-center gap-3">
-                    {data.period} 
-                    {data.isCurrent && (
-                        <span className="text-xs px-3 py-1 bg-purple-600/30 text-purple-400 rounded-full font-medium">
-                            Período Atual
-                        </span>
-                    )}
-                </span>
-
-                <span className={`text-2xl font-extrabold flex items-center gap-2 ${performanceColor}`}>
-                    <TrendingUp size={24} /> {data.successPercentage}%
-                </span>
-            </h3>
-
-            {/* Barras de Progresso */}
-            <div className="mb-4">
-                <div className="w-full bg-[#0F1115] rounded-full h-2.5">
-                    <div 
-                        className={`h-2.5 rounded-full transition-all duration-500 ${barColor}`} 
-                        style={{ width: `${data.successPercentage}%` }}
-                    ></div>
+              </div>
+              <div className="text-sm text-slate-300 mt-3">{note.content ? (note.content.length > 200 ? note.content.slice(0,200) + '...' : note.content) : <span className="text-slate-500">(Sem conteúdo)</span>}</div>
+              {(note.tags && note.tags.length > 0) && (
+                <div className="flex gap-2 mt-3 flex-wrap">
+                  {note.tags.map(t => <span key={t} className="text-xs bg-white/5 text-slate-200 px-2 py-1 rounded">#{t}</span>)}
                 </div>
-                <p className="text-sm text-slate-500 mt-2">
-                    Taxa de Sucesso ({data.concluded} aprovadas de {totalEvaluated} avaliadas)
-                </p>
+              )}
             </div>
-
-            {/* Métricas Detalhadas (AGORA COM 3 COLUNAS) */}
-            <div className="grid grid-cols-3 gap-4 border-t border-white/5 pt-4">
-                <PerformanceMetric icon={<CheckCircle size={20} className="text-emerald-400" />} label="Aprovadas" value={data.concluded} />
-                <PerformanceMetric icon={<Clock size={20} className="text-orange-400" />} label="Cursando" value={data.doing} />
-                {/* NOVO: Reprovados */}
-                <PerformanceMetric icon={<X size={20} className="text-red-400" />} label="Reprovados" value={data.failed} />
-            </div>
-        </div>
-    );
-}
-
-// --- Componente Principal (PerformanceView) ---
-// Ele DEVE usar o PeriodPerformanceCard, e não o SemesterPerformanceCard
-function PerformanceView({ subjects }: { subjects: Subject[] }) {
-    
-    const semesterData = usePerformanceData(subjects);
-    
-    return (
-        <div className="max-w-6xl mx-auto">
-            <header className="mb-8 flex items-center gap-3">
-                <div className="bg-purple-500/10 p-3 rounded-xl"><BarChart className="text-purple-400" size={32} /></div>
-                <div><h2 className="text-3xl font-bold text-white">Desempenho Acadêmico</h2></div>
-            </header>
-            
-            <p className="text-slate-400 mb-6">Métricas detalhadas por período letivo (Ano/Semestre).</p>
-
-            <div className="space-y-6">
-                {semesterData.map((data, index) => (
-                    <PeriodPerformanceCard key={index} data={data} /> // <--- CORREÇÃO: USANDO PeriodPerformanceCard
-                ))}
-            </div>
-
-            {semesterData.length === 0 && (
-                <div className="text-center py-16 text-slate-500 bg-[#16181D] rounded-xl">
-                    Nenhuma disciplina cadastrada para calcular o desempenho.
-                </div>
-            )}
-        </div>
-    );
-}
-
-// Componente Auxiliar
-function PerformanceMetric({ icon, label, value }: { icon: React.ReactNode, label: string, value: number }) {
-  return (
-    <div className="flex flex-col items-center p-3 bg-[#0F1115] rounded-lg">
-      {icon}
-      <span className="text-xl font-bold text-white mt-1">{value}</span>
-      <p className="text-xs text-slate-500">{label}</p>
+          )
+        })}
+      </div>
     </div>
-  );
+  )
 }
+function NoteModal({ note, subjects, onSave, onClose }: { note: Note, subjects: Subject[], onSave: (data: Note) => void, onClose: () => void }) {
+  const isNew = note.id === 'new';
+  const [noteData, setNoteData] = useState<Note>(note);
 
-// --- MODAL DE CRIAÇÃO/EDIÇÃO DE TAREFAS (COMPLETO) ---
-function TaskModal({ task, subjects, onSave, onClose }: { task: Task, subjects: Subject[], onSave: (data: Task) => void, onClose: () => void }) {
-  const isNew = task.id === 'new'
-  const [taskData, setTaskData] = useState({ 
-    ...task, 
-    // Garante que a data está no formato YYYY-MM-DD para o input type="date"
-    dueDate: task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : ''
-  })
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setTaskData(prev => ({ ...prev, [name]: value }))
-  }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNoteData(prev => ({ ...prev, [name]: value }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    // Validação básica
-    if (!taskData.title.trim()) {
-      alert("O título da tarefa é obrigatório.")
-      return
-    }
-    onSave(taskData)
-  }
+    e.preventDefault();
+    onSave(noteData);
+  };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-[#1A1D24] border border-white/10 w-full max-w-lg rounded-2xl p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
-        
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-white">{isNew ? 'Nova Tarefa' : 'Editar Tarefa'}</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-white"><X size={24} /></button>
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-[#1A1D24] border border-white/10 w-full max-w-2xl rounded-2xl p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-xl font-bold text-white">{note.id === 'new' ? 'Nova Nota' : 'Editar Nota'}</h3>
+          <button onClick={onClose} className="text-slate-400">Fechar</button>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
-          
-          {/* TÍTULO */}
           <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">Título</label>
-            <input
-              type="text"
-              name="title"
-              value={taskData.title}
-              onChange={handleChange}
-              placeholder="Ex: Revisar P1 de Cálculo II"
-              className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-              required
-            />
+            <label className="text-sm text-slate-400">Título</label>
+            <input value={noteData.title} onChange={e => setNoteData({ ...noteData, title: e.target.value })} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white" />
           </div>
-
-          {/* DESCRIÇÃO */}
           <div>
-            <label className="block text-sm font-medium text-slate-400 mb-1">Descrição (Opcional)</label>
-            <textarea
-              name="description"
-              value={taskData.description || ''}
-              onChange={handleChange}
-              rows={3}
-              placeholder="Notas, links ou detalhes importantes..."
-              className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none resize-none"
-            />
+            <label className="text-sm text-slate-400">Data</label>
+            <input type="date" value={noteData.date.slice(0, 10)} onChange={e => setNoteData({ ...noteData, date: e.target.value + 'T00:00:00' })} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white" />
+          </div>
+          <div>
+            <label className="text-sm text-slate-400">Vincular a disciplina (opcional)</label>
+            <select value={noteData.subjectId || ''} onChange={e => setNoteData({ ...noteData, subjectId: e.target.value || undefined })} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white">
+              <option value="">(Nenhuma)</option>
+              {subjects.map((s: Subject) => <option key={s.id} value={s.id}>{s.code} - {s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm text-slate-400">Tags (separadas por vírgula)</label>
+            <input value={(noteData.tags || []).join(', ')} onChange={e => setNoteData({ ...noteData, tags: e.target.value.split(',').map(t => t.trim()).filter(t => t.length > 0) })} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white" />
+          </div>
+          <div>
+            <label className="text-sm text-slate-400">Conteúdo</label>
+            <textarea value={noteData.content} onChange={e => setNoteData({ ...noteData, content: e.target.value })} rows={8} className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            
-            {/* DISCIPLINA */}
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Disciplina</label>
-              <select
-                name="subjectId"
-                value={taskData.subjectId || ''}
-                onChange={handleChange}
-                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-              >
-                <option value="">(Nenhuma)</option>
-                {subjects.map(sub => (
-                  <option key={sub.id} value={sub.id}>{sub.code} - {sub.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* DATA DE ENTREGA */}
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Data de Entrega (Opcional)</label>
-              <input
-                type="date"
-                name="dueDate"
-                value={taskData.dueDate || ''}
-                onChange={handleChange}
-                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-              />
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            {/* STATUS */}
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Status</label>
-              <select
-                name="status"
-                value={taskData.status}
-                onChange={handleChange}
-                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-              >
-                <option value="todo">A Fazer</option>
-                <option value="doing">Fazendo</option>
-                <option value="done">Concluído</option>
-              </select>
-            </div>
-
-            {/* PRIORIDADE */}
-            <div>
-              <label className="block text-sm font-medium text-slate-400 mb-1">Prioridade</label>
-              <select
-                name="priority"
-                value={taskData.priority}
-                onChange={handleChange}
-                className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
-              >
-                <option value="low">Baixa</option>
-                <option value="medium">Média</option>
-                <option value="high">Alta</option>
-              </select>
-            </div>
-          </div>
-
-
-          <div className="pt-4">
-            <button
-              type="submit"
-              className="w-full bg-purple-600 hover:bg-purple-500 text-white px-6 py-3 rounded-xl font-bold flex justify-center items-center gap-2 transition-all"
-            >
-              <Save size={18} /> {isNew ? 'Criar Tarefa' : 'Salvar Alterações'}
-            </button>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 rounded bg-white/5 text-slate-200">Cancelar</button>
+            <button type="submit" className="px-4 py-2 rounded bg-purple-600 text-white">Salvar</button>
           </div>
         </form>
       </div>
@@ -2674,5 +2712,6 @@ function TaskModal({ task, subjects, onSave, onClose }: { task: Task, subjects: 
   )
 }
 
+// --- END Notes components ---
 
 export default App;
