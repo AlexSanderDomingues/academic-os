@@ -902,6 +902,7 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
           <SidebarItem icon={<CheckSquare size={20} />} label="Tarefas" active={activeTab === 'tarefas'} onClick={() => setActiveTab('tarefas')} />
           <SidebarItem icon={<BarChart size={20} />} label="Desempenho" active={activeTab === 'desempenho'} onClick={() => setActiveTab('desempenho')} />
           <SidebarItem icon={<FileText size={20} />} label="Anotações" active={activeTab === 'notes'} onClick={() => setActiveTab('notes')} />
+          {/* ...existing sidebar items... */}
            {/* NOVO ITEM NA SIDEBAR */}
            <SidebarItem icon={<FileText size={20} />} label="Importar PPC" active={activeTab === 'import-ppc'} onClick={() => setActiveTab('import-ppc')} />
           
@@ -930,6 +931,8 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
               onDeleteNote={handleDeleteNote}
             />
         )}
+
+        {/* AVA removido */}
 
         {/* NOVO BLOCO: CHAMADA PARA O DASHBOARD */}
         {activeTab === 'dashboard' && ( 

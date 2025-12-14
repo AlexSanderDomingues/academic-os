@@ -1,51 +1,23 @@
-Serverless AVA (exemplo)
+````markdown
+Serverless AVA (removido)
 =========================
 
-Este repositório contém um exemplo de função serverless em `api/ava.ts` que atua como um proxy para um LLM (ex.: OpenAI). A função espera receber POSTs com JSON { mode, payload } e retorna { result } com a resposta do modelo.
+A integração serverless / LLM que existia como exemplo foi removida a pedido do usuário.
 
-Como usar
----------
+Se você quiser reativar um endpoint serverless no futuro, siga estas recomendações:
 
-1. Escolha um provedor serverless (recomendado: Vercel para deploy simples)
+- Não inclua chaves no repositório; use variáveis de ambiente no provedor (Vercel, Netlify, etc.).
+- Valide e sanitize todo input recebido para evitar vazamento de dados sensíveis.
+- Adicione um fluxo de consentimento claro no frontend antes de enviar notas pessoais ao servidor.
+- Proteja o endpoint com autenticação e limite de taxa (rate limiting).
 
-2. Configure a variável de ambiente `OPENAI_API_KEY` no painel do provedor (não a coloque no código).
+Exemplo de alto nível (não implementado aqui):
 
-3. Deploy
-   - Vercel: `vercel --prod` (instale o Vercel CLI e logue)
-   - Netlify: crie uma function equivalente em `netlify/functions/ava.js`
-
-4. Requisições do front-end
-
-   A API expõe um endpoint POST `/api/ava`. Exemplo de corpo:
-
-   {
-     "mode": "generateQuestions",
-     "payload": { "text": "seu texto de anotação aqui" }
-   }
-
-Resposta:
-
-  { "result": "texto retornado pelo LLM" }
-
-Desenvolvimento local
----------------------
-
-Você pode testar localmente com o Vercel CLI:
-
-```sh
-npx vercel dev
+```js
+// POST /api/ava
+// body: { mode: 'explain', payload: { text: '...' } }
+// header: Authorization: Bearer <TOKEN_ENV_SET_ON_SERVER>
 ```
 
-ou usando `node`/`fetch` apontando para http://localhost:3000/api/ava após iniciar o dev server.
-
-Segurança
---------
-
-- Nunca comite chaves de API.
-- Restrinja uso do endpoint (rate-limit) e adicione autenticação se for público.
-
-Adaptação para outros provedores
---------------------------------
-
-- AWS Lambda: embrulhe o handler adaptando `event`/`context`.
-- Google Cloud Functions: similar.
+Por enquanto o projeto mantém apenas implementações locais (heurísticas) para recursos de assistente.
+````
