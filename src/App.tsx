@@ -125,6 +125,7 @@ function App() {
 
   // --- POMODORO: estado e persistência (IndexedDB) ---
   const [pomodoroSessions, setPomodoroSessions] = useState<PomodoroSession[]>([]);
+  const [pomodoroLoaded, setPomodoroLoaded] = useState(false);
 
   // Load pomodoro sessions from IndexedDB on mount
   useEffect(() => {
@@ -190,6 +191,7 @@ function App() {
 
   // --- NOTAS (Anotações) ---
   const [notes, setNotes] = useState<Note[]>([]);
+  const [notesLoaded, setNotesLoaded] = useState(false);
 
   useEffect(() => {
     let mounted = true
@@ -234,8 +236,10 @@ function App() {
 
   // --- PERSISTÊNCIA (IndexedDB) ---
   const [subjects, setSubjects] = useState<Subject[]>(initialSubjects)
+  const [subjectsLoaded, setSubjectsLoaded] = useState(false);
 
   const [tasks, setTasks] = useState<Task[]>(initialTasks)
+  const [tasksLoaded, setTasksLoaded] = useState(false);
 
   // --- Função utilitária: Restaurar dados iniciais (reset localStorage)
   const handleResetData = () => {
@@ -251,53 +255,120 @@ function App() {
 
   // Load subjects, tasks and schedule from IndexedDB on mount
   useEffect(() => {
-    // Migrate any existing localStorage keys to IndexedDB (one-time)
-    try {
-      const keys = ['academic-subjects','academic-tasks','academic-schedule','academic-pomodoro','academic-notes']
-      keys.forEach(k => {
-        try {
-          const v = localStorage.getItem(k)
-          if (v) {
-            idbSet(k, v).catch(() => {})
-            localStorage.removeItem(k)
+    // One-time migration: perform atomically and create backups before overwriting.
+    const migrate = async () => {
+      try {
+        const keys = ['academic-subjects','academic-tasks','academic-schedule','academic-pomodoro','academic-notes']
+        const ts = Date.now()
+        for (const k of keys) {
+          try {
+            const v = localStorage.getItem(k)
+            if (v) {
+              // create a backup copy in IDB in case migration goes wrong
+              await idbSet(`academic-backup-${k}-${ts}`, v)
+              await idbSet(k, v)
+              // only remove from localStorage after successful write
+              try { localStorage.removeItem(k) } catch(e) { /* noop */ }
+            }
+          } catch(e) {
+            // skip individual key errors
           }
-        } catch(e) { }
-      })
-    } catch(e) {}
+        }
+      } catch(e) {
+        // migration best-effort
+      }
 
-    let mounted = true
-    idbGet('academic-subjects').then(saved => {
-      if (!mounted) return
-      if (saved) {
-        try { setSubjects(JSON.parse(saved)) } catch {}
-      }
-    }).catch(() => {})
-    idbGet('academic-tasks').then(saved => {
-      if (!mounted) return
-      if (saved) {
-        try { setTasks(JSON.parse(saved)) } catch {}
-      }
-    }).catch(() => {})
-    idbGet('academic-schedule').then(saved => {
-      if (!mounted) return
-      if (saved) {
-        try { setSchedule(JSON.parse(saved)) } catch {}
-      }
-    }).catch(() => {})
-    return () => { mounted = false }
+      let mounted = true
+
+      // Subjects
+      try {
+        const saved = await idbGet('academic-subjects')
+        if (mounted) {
+          if (saved) {
+            try { setSubjects(JSON.parse(saved)) } catch { }
+          }
+          setSubjectsLoaded(true)
+        }
+      } catch { setSubjectsLoaded(true) }
+
+      // Tasks
+      try {
+        const saved = await idbGet('academic-tasks')
+        if (mounted) {
+          if (saved) {
+            try { setTasks(JSON.parse(saved)) } catch { }
+          }
+          setTasksLoaded(true)
+        }
+      } catch { setTasksLoaded(true) }
+
+      // Schedule
+      try {
+        const saved = await idbGet('academic-schedule')
+        if (mounted) {
+          if (saved) {
+            try { setSchedule(JSON.parse(saved)) } catch { }
+          }
+        }
+      } catch { }
+
+      // Pomodoro
+      try {
+        const saved = await idbGet('academic-pomodoro')
+        if (mounted) {
+          if (saved) {
+            try { setPomodoroSessions(JSON.parse(saved)) } catch { }
+          }
+          setPomodoroLoaded(true)
+        }
+      } catch { setPomodoroLoaded(true) }
+
+      // Notes
+      try {
+        const saved = await idbGet('academic-notes')
+        if (mounted) {
+          if (saved) {
+            try { setNotes(JSON.parse(saved)) } catch { }
+          }
+          setNotesLoaded(true)
+        }
+      } catch { setNotesLoaded(true) }
+
+      return () => { mounted = false }
+    }
+
+    migrate()
+    // no cleanup function required here
   }, [])
 
+  // Persist subjects only after initial load completed
   useEffect(() => {
+    if (!subjectsLoaded) return
     idbSet('academic-subjects', JSON.stringify(subjects)).catch(() => {})
-  }, [subjects])
+  }, [subjects, subjectsLoaded])
 
   useEffect(() => {
+    if (!tasksLoaded) return
     idbSet('academic-tasks', JSON.stringify(tasks)).catch(() => {})
-  }, [tasks])
+  }, [tasks, tasksLoaded])
 
   useEffect(() => {
+    // schedule doesn't have explicit loaded flag; avoid overwriting by only writing
+    // if DB already loaded or if user has interacted (simple heuristic: subjectsLoaded)
+    if (!subjectsLoaded) return
     idbSet('academic-schedule', JSON.stringify(schedule)).catch(() => {})
-  }, [schedule])
+  }, [schedule, subjectsLoaded])
+
+  // Persist pomodoro and notes only after they were loaded
+  useEffect(() => {
+    if (!pomodoroLoaded) return
+    idbSet('academic-pomodoro', JSON.stringify(pomodoroSessions)).catch(() => {})
+  }, [pomodoroSessions, pomodoroLoaded]);
+
+  useEffect(() => {
+    if (!notesLoaded) return
+    idbSet('academic-notes', JSON.stringify(notes)).catch(() => {})
+  }, [notes, notesLoaded]);
   
   // -----------------------------------
 
@@ -2745,7 +2816,26 @@ function TaskModal({ task, subjects, onSave, onClose }: { task: Task, subjects: 
 
 // Componente simples para seleção de pré-requisitos
 function PrerequisiteListBox({ currentPrereqs, allSubjects, onChange, disabled, currentSubjectCode }: { currentPrereqs: string, allSubjects: Subject[], onChange: (v: string) => void, disabled?: boolean, currentSubjectCode?: string }) {
+  const [search, setSearch] = useState('')
   const selected = currentPrereqs ? currentPrereqs.split(';').map(s => s.trim()).filter(Boolean) : [];
+
+  // Build a unique list by code (shows each discipline once even if multiple attempts exist)
+  const map = allSubjects.reduce((acc: Record<string, { code: string; name: string; count: number; examples: string[] }>, s) => {
+    if (s.code === currentSubjectCode) return acc; // don't list the current editing subject as its own prereq
+    const key = s.code || s.name || s.id
+    if (!acc[key]) acc[key] = { code: s.code, name: s.name || s.code, count: 0, examples: [] }
+    acc[key].count += 1
+    acc[key].examples.push(s.id)
+    return acc
+  }, {})
+
+  const entries = Object.values(map).sort((a, b) => a.code.localeCompare(b.code))
+
+  const filtered = entries.filter(e => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return e.code.toLowerCase().includes(q) || (e.name || '').toLowerCase().includes(q)
+  })
 
   const toggle = (code: string) => {
     const next = selected.includes(code) ? selected.filter(c => c !== code) : [...selected, code];
@@ -2753,13 +2843,22 @@ function PrerequisiteListBox({ currentPrereqs, allSubjects, onChange, disabled, 
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {allSubjects.filter(s => s.code !== currentSubjectCode).map(s => (
-        <label key={s.id} className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-60' : ''}`}>
-          <input type="checkbox" checked={selected.includes(s.code)} disabled={disabled} onChange={() => toggle(s.code)} />
-          <span className="text-slate-300">{s.code} - {s.name}</span>
-        </label>
-      ))}
+    <div>
+      <div className="mb-2">
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar pré-requisito..." className="w-full bg-[#0F1115] border border-white/10 rounded-lg p-2 text-slate-200" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-64 overflow-auto">
+        {filtered.length === 0 && <div className="text-slate-500 p-2">Nenhuma disciplina encontrada.</div>}
+        {filtered.map(e => (
+          <label key={e.code} className={`flex items-center gap-2 text-sm ${disabled ? 'opacity-60' : ''}`}>
+            <input type="checkbox" checked={selected.includes(e.code)} disabled={disabled} onChange={() => toggle(e.code)} />
+            <div className="flex flex-col">
+              <span className="text-slate-300">{e.code} - {e.name}</span>
+              {e.count > 1 && <span className="text-xs text-slate-500">{e.count} tentativa(s)</span>}
+            </div>
+          </label>
+        ))}
+      </div>
     </div>
   )
 }
