@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { initialSubjects, initialTasks } from './data'
 import { idbGet, idbSet } from './idbStorage'
+import AVAPanel from './ava/AVAPanel'
 import type { Subject, Task, Attempt } from './data'
 
 // Definindo a interface para um Horário (ScheduleItem)
@@ -902,6 +903,7 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
           <SidebarItem icon={<CheckSquare size={20} />} label="Tarefas" active={activeTab === 'tarefas'} onClick={() => setActiveTab('tarefas')} />
           <SidebarItem icon={<BarChart size={20} />} label="Desempenho" active={activeTab === 'desempenho'} onClick={() => setActiveTab('desempenho')} />
           <SidebarItem icon={<FileText size={20} />} label="Anotações" active={activeTab === 'notes'} onClick={() => setActiveTab('notes')} />
+          <SidebarItem icon={<TrendingUp size={20} />} label="AVA" active={activeTab === 'ava'} onClick={() => setActiveTab('ava')} />
            {/* NOVO ITEM NA SIDEBAR */}
            <SidebarItem icon={<FileText size={20} />} label="Importar PPC" active={activeTab === 'import-ppc'} onClick={() => setActiveTab('import-ppc')} />
           
@@ -976,6 +978,10 @@ function SemesterProgress({ semester, concluded, total, percentage }: { semester
             schedule={schedule} 
             onOpenModal={handleOpenScheduleModal}
           />
+        )}
+
+        {activeTab === 'ava' && (
+          <AVAPanel subjects={subjects} tasks={tasks} notes={notes} />
         )}
 
         {activeTab === 'import-ppc' && (
