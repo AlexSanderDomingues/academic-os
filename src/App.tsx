@@ -555,11 +555,18 @@ function useDashboardData(subjects: Subject[], pomodoroSessions?: PomodoroSessio
         }
 
         const semester = sub.semester || 'Sem Semestre';
-        acc[semester] = acc[semester] || { total: 0, concluded: 0 };
-        acc[semester].total += 1;
-        if (sub.status === 'done' && sub.grade && sub.grade >= 6) {
-            acc[semester].concluded += 1;
-        }
+    acc[semester] = acc[semester] || { total: 0, concluded: 0 };
+    // Contabiliza o total por semestre, mas NÃO conta tentativas antigas (repetições)
+    // que não são a tentativa atual (is_current_attempt === false), a menos que
+    // a disciplina já esteja concluída (aprovada). Isso evita que uma reprovação
+    // antiga aumente o denominador (ex: 6/7 -> deveria ser 6/6).
+    const countedInTotal = (sub.is_current_attempt !== false) || (sub.status === 'done' && sub.grade !== undefined && sub.grade >= 6);
+    if (countedInTotal) {
+      acc[semester].total += 1;
+    }
+    if (sub.status === 'done' && sub.grade && sub.grade >= 6) {
+      acc[semester].concluded += 1;
+    }
         return acc;
     }, {} as Record<string, { total: number, concluded: number }>);
     
