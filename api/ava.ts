@@ -29,31 +29,7 @@ async function callOpenAI(prompt: string) {
   return data.choices?.[0]?.message?.content || JSON.stringify(data)
 }
 
+// AI serverless removed. This endpoint is intentionally disabled.
 export default async function handler(req: any, res: any) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-  const { mode, payload } = req.body || {}
-  try {
-    let prompt = ''
-    switch (mode) {
-      case 'analyzeBottlenecks':
-        prompt = `Analise estas disciplinas e indique possíveis gargalos ou pré-requisitos que precisam de atenção. Retorne em texto curto. Dados: ${JSON.stringify(payload.subjects || payload)} `
-        break
-      case 'generateQuestions':
-        prompt = `Gere 3 questões de múltipla escolha a partir do texto a seguir e forneça as alternativas e a resposta correta. Texto: ${String(payload.text || '')}`
-        break
-      case 'explain':
-        prompt = `Explique de forma simples (como para uma criança de 10 anos): ${String(payload.text || '')}`
-        break
-      case 'prioritize':
-        prompt = `Dada esta lista de tarefas e currículo, gere uma priorização curta com justificativas. Tarefas: ${JSON.stringify(payload.tasks || [])} Subjects: ${JSON.stringify(payload.subjects || [])}`
-        break
-      default:
-        prompt = `Modo desconhecido. payload: ${JSON.stringify(payload)}`
-    }
-
-    const result = await callOpenAI(prompt)
-    return res.status(200).json({ result })
-  } catch (e: any) {
-    return res.status(500).json({ error: e.message || String(e) })
-  }
+  return res.status(404).json({ error: 'Not Found - AI integration removed' })
 }
