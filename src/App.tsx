@@ -2237,14 +2237,22 @@ function DependenciesContent({ subjects }: { subjects: Subject[] }) {
         
         const prerequisites = sub.finalNote.split(';').map(p => p.trim()).filter(p => p.length > 0);
 
-        return prerequisites.map(reqCode => {
-            const reqSubject = subjects.find(s => s.code === reqCode);
-            return {
-                prerequisite: reqSubject,
-                subject: sub,
-                reqCode: reqCode
-            };
-        });
+    return prerequisites.map(reqCode => {
+      // Caso possa haver múltiplas entradas com o mesmo código (tentativas/repetições),
+      // preferimos a tentativa atual (is_current_attempt !== false) ou uma disciplina aprovada.
+      const matches = subjects.filter(s => s.code === reqCode);
+      let reqSubject = undefined as Subject | undefined;
+      if (matches.length === 1) reqSubject = matches[0];
+      else if (matches.length > 1) {
+        reqSubject = matches.find(s => s.is_current_attempt !== false) || matches.find(s => (s.grade !== undefined && s.grade >= 6)) || matches[0];
+      }
+
+      return {
+        prerequisite: reqSubject,
+        subject: sub,
+        reqCode: reqCode
+      };
+    });
     });
 
     // 2. Função de Status Visual (AGORA MAIS INTELIGENTE)
