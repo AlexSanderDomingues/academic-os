@@ -2037,7 +2037,7 @@ function SubjectDetailModal({ subject, subjects, onSave, onDelete, onClose }: { 
                                 value={data.name}
                                 onChange={handleChange}
                                 placeholder="Nome Completo"
-                                className="w-full bg-[#1D2430] border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                className="w-full bg-academic-dark border border-white/10 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
                                 disabled={!isEditing}
                                 required
                             />
